@@ -80,3 +80,60 @@ def format_user(first_name: str, username: str) -> str:
 def blockquote(text: str) -> str:
     """Обернуть текст в Telegram blockquote."""
     return f"<blockquote>{escape(text)}</blockquote>"
+
+
+# --- .short: экстрактивный пересказ ---
+import re as _re
+
+_STOPWORDS = {
+    "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как", "а",
+    "то", "все", "она", "так", "его", "но", "да", "ты", "к", "у", "же",
+    "вы", "за", "бы", "по", "только", "ее", "мне", "было", "вот", "от",
+    "меня", "еще", "нет", "о", "из", "ему", "теперь", "когда", "даже",
+    "ну", "вдруг", "ли", "если", "уже", "или", "ни", "быть", "был", "него",
+    "до", "вас", "нибудь", "опять", "уж", "вам", "ведь", "там", "потом",
+    "себя", "ничего", "ей", "может", "они", "тут", "где", "есть", "надо",
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "is", "are",
+    "was", "were", "it", "this", "that", "for", "with", "as", "at", "by",
+}
+
+
+def summarize(text: str, max_sentences: int = 3) -> str:
+    """Экстрактивный пересказ: выбрать самые «весомые» предложения.
+
+    Простой частотный алгоритм (без внешних зависимостей): считаем
+    частоту значимых слов и выбираем предложения с наибольшим весом,
+    сохраняя исходный порядок.
+    """
+    if not text or not text.strip():
+        return ""
+    # Разбиваем на предложения
+    sentences = _re.split(r"(?<=[.!?…])\s+", text.strip())
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if len(sentences) <= max_sentences:
+        return text.strip()
+
+    # Частоты слов
+    words = _re.findall(r"\w+", text.lower())
+    freq: dict[str, int] = {}
+    for w in words:
+        if w in _STOPWORDS or len(w) < 3:
+            continue
+        freq[w] = freq.get(w, 0) + 1
+    if not freq:
+        return " ".join(sentences[:max_sentences])
+    maxf = max(freq.values())
+    for w in freq:
+        freq[w] /= maxf  # нормализация
+
+    # Скоринг предложений
+    scored = []
+    for i, s in enumerate(sentences):
+        sw = _re.findall(r"\w+", s.lower())
+        if not sw:
+            continue
+        score = sum(freq.get(w, 0) for w in sw) / (len(sw) ** 0.5)
+        scored.append((score, i, s))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    chosen = sorted(scored[:max_sentences], key=lambda x: x[1])
+    return " ".join(s for _, _, s in chosen)

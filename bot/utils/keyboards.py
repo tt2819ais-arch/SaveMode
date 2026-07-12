@@ -143,5 +143,8 @@ def fv_kb() -> InlineKeyboardMarkup:
     kb.button(text="🐿 Бурундук", callback_data="fv:chipmunk")
     kb.button(text="👹 Демон", callback_data="fv:demon")
     kb.button(text="🐌 Медленно", callback_data="fv:slow")
+    kb.button(text="⚡ Быстро", callback_data="fv:fast")
+    kb.button(text="🌀 Эхо", callback_data="fv:echo")
+    kb.button(text="🤖 Робот", callback_data="fv:robot")
     kb.adjust(3)
     return kb.as_markup()

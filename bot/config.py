@@ -7,3 +7,7 @@ load_dotenv()
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 OWNER_ID: int = int(os.getenv("OWNER_ID", "0"))
 DB_PATH: str = os.getenv("DB_PATH", "savemod.db")
+
+# Опционально: ключ OpenAI для транскрибации голосовых (.short).
+# Если не задан — .short работает без STT (только длительность + пересказ текста).
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

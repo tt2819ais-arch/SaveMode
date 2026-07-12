@@ -215,14 +215,48 @@ async def cb_admin_bc_confirm(cb: CallbackQuery, bot: Bot):
 
 # ── Голосовые эффекты (.fv) ──
 @router.callback_query(F.data.startswith("fv:"))
-async def cb_fv(cb: CallbackQuery):
+async def cb_fv(cb: CallbackQuery, bot: Bot):
+    import io
+    from aiogram.types import BufferedInputFile
+    from bot.utils.audio import process_voice, ffmpeg_available, EFFECT_NAMES
+    from bot.handlers.commands import fv_pending
+
     effect = cb.data.split(":", 1)[1]
-    names = {"chipmunk": "🐿 Бурундук", "demon": "👹 Демон", "🐌": "Медленно",
-             "slow": "🐌 Медленно"}
-    await cb.answer(
-        f"Эффект «{names.get(effect, effect)}» выбран. "
-        "Обработка голоса требует ffmpeg на сервере.",
-        show_alert=True)
+    ename = EFFECT_NAMES.get(effect, effect)
+    file_id = fv_pending.get(cb.from_user.id)
+    if not file_id:
+        await cb.answer(
+            "Голосовое не найдено. Ответьте на голосовое командой .fv заново.",
+            show_alert=True)
+        return
+    if not ffmpeg_available():
+        await cb.answer(
+            "ffmpeg не установлен на сервере — обработка недоступна.",
+            show_alert=True)
+        return
+    await cb.answer(f"Обрабатываю: {ename}…")
+    try:
+        tf = await bot.get_file(file_id)
+        buf = io.BytesIO()
+        await bot.download_file(tf.file_path, buf)
+        result = await process_voice(buf.getvalue(), effect)
+    except Exception as e:
+        logger.warning("fv download/process error: %s", e)
+        result = None
+    if not result:
+        await cb.message.answer(
+            "🎤 Не удалось обработать голосовое. Попробуйте другой эффект "
+            "или другое сообщение.")
+        return
+    fv_pending.pop(cb.from_user.id, None)
+    try:
+        await bot.send_voice(
+            cb.from_user.id,
+            BufferedInputFile(result, "voice.ogg"),
+            caption=f"🎤 Голос с эффектом: {ename}")
+    except Exception as e:
+        logger.warning("fv send_voice error: %s", e)
+        await cb.message.answer("🎤 Обработал, но не смог отправить результат.")
 
 
 # ══════════ ИГРЫ ══════════

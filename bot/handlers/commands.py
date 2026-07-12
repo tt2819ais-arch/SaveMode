@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 _afk_last: dict = {}
 # Антиспам для .type
 _type_last: dict = {}
+# Ожидающие обработки голосовые для .fv: {owner_id: file_id}
+fv_pending: dict = {}
 
 
 def _parse(text: str) -> tuple[str, str]:
@@ -149,7 +151,6 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
 # ══════════ КОМАНДЫ ══════════
 
 async def cmd_help(bot, msg, bc_id, owner_id, arg, partner):
-    is_owner = owner_id == owner_id
     await bot.send_message(
         chat_id=owner_id,
         text="📋 <b>Меню команд SaveMOD</b>\n\nВыберите категорию:",
@@ -316,26 +317,54 @@ async def cmd_nk(bot, msg, bc_id, owner_id, arg, partner):
 
 
 async def cmd_short(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils.text_tools import summarize
+    from bot.utils.stt import transcribe, stt_available
     reply = msg.reply_to_message
     if not reply:
         await bot.send_message(
             owner_id, "📝 Ответьте на голосовое или текстовое "
                       "сообщение командой .short")
         return
-    if reply.voice:
-        dur = reply.voice.duration
-        await bot.send_message(
-            owner_id,
-            f"📝 Голосовое сообщение: {dur} сек.\n\n"
-            "ℹ️ Полная транскрибация требует внешнего STT-сервиса "
-            "(можно подключить Whisper/ElevenLabs). Сейчас показана "
-            "длительность.")
+    if reply.voice or reply.audio:
+        media = reply.voice or reply.audio
+        dur = getattr(media, "duration", 0)
+        if stt_available():
+            await bot.send_message(owner_id, "📝 Расшифровываю голосовое…")
+            try:
+                tf = await bot.get_file(media.file_id)
+                buf = io.BytesIO()
+                await bot.download_file(tf.file_path, buf)
+                text = await transcribe(buf.getvalue())
+            except Exception as e:
+                logger.warning("STT error: %s", e)
+                text = None
+            if text:
+                out = f"📝 <b>Расшифровка ({dur} сек):</b>\n{escape(text)}"
+                summary = summarize(text, 2)
+                if summary and summary != text:
+                    out += f"\n\n🔑 <b>Кратко:</b>\n{escape(summary)}"
+                await bot.send_message(owner_id, out, parse_mode="HTML")
+            else:
+                await bot.send_message(
+                    owner_id,
+                    f"📝 Голосовое: {dur} сек. Не удалось расшифровать "
+                    "(проверьте OPENAI_API_KEY или попробуйте позже).")
+        else:
+            await bot.send_message(
+                owner_id,
+                f"📝 Голосовое сообщение: {dur} сек.\n\n"
+                "ℹ️ Транскрибация отключена. Чтобы включить, задайте "
+                "<code>OPENAI_API_KEY</code> в окружении (используется "
+                "Whisper API). Без ключа расшифровка недоступна.",
+                parse_mode="HTML")
     elif reply.text:
         t = reply.text
-        if len(t) > 500:
-            summary = t[:200] + f"… (ещё {len(t) - 200} символов)"
+        summary = summarize(t, 3)
+        if summary and summary.strip() != t.strip():
             await bot.send_message(
-                owner_id, f"📝 <b>Краткий пересказ:</b>\n{escape(summary)}",
+                owner_id,
+                f"📝 <b>Краткий пересказ:</b>\n{escape(summary)}\n\n"
+                f"<i>(из {len(t)} символов)</i>",
                 parse_mode="HTML")
         else:
             await bot.send_message(
@@ -347,14 +376,26 @@ async def cmd_short(bot, msg, bc_id, owner_id, arg, partner):
 
 async def cmd_status(bot, msg, bc_id, owner_id, arg, partner):
     if not arg:
-        await bot.send_message(owner_id, "✏️ Укажите статус: .status [текст]")
+        await bot.send_message(
+            owner_id, "✏️ Укажите статус: .status [текст]\n"
+                      "Для сброса: .status off")
         return
-    await bot.send_message(
-        owner_id,
-        f"✏️ <b>Предпросмотр статуса:</b>\n\nВаше имя {escape(arg)}\n\n"
-        "ℹ️ Bot API не позволяет напрямую менять имя аккаунта. "
-        "Установите статус вручную в настройках профиля Telegram.",
-        parse_mode="HTML")
+    if arg.strip().lower() in ("off", "выкл", "сброс"):
+        await bot.send_message(owner_id, "✏️ Статус сброшен.")
+        return
+    # Что ДЕЙСТВИТЕЛЬНО можем: красиво оформить исходящее сообщение владельца.
+    styled = f"『 {arg.strip()} 』"
+    ok = await _edit_own(bot, msg, bc_id, styled)
+    note = (
+        "ℹ️ <b>Про имя профиля:</b> Bot API Telegram не позволяет менять "
+        "имя/статус аккаунта — это ограничение самого Telegram, а не бота. "
+        "Поменять имя можно только вручную: Настройки → Изменить профиль.\n\n"
+        f"✅ Оформил текущее сообщение в стиле статуса: {escape(styled)}"
+        if ok else
+        "ℹ️ Bot API не позволяет менять имя аккаунта Telegram. "
+        "Установите имя/статус вручную в настройках профиля."
+    )
+    await bot.send_message(owner_id, note, parse_mode="HTML")
 
 
 async def cmd_gifts(bot, msg, bc_id, owner_id, arg, partner):
@@ -382,9 +423,17 @@ async def cmd_fv(bot, msg, bc_id, owner_id, arg, partner):
         await bot.send_message(
             owner_id, "🎤 Ответьте на голосовое сообщение командой .fv")
         return
+    from bot.utils.audio import ffmpeg_available
+    # Запоминаем голосовое для последующей обработки по нажатию кнопки
+    fv_pending[owner_id] = reply.voice.file_id
+    note = ""
+    if not ffmpeg_available():
+        note = ("\n\n⚠️ ffmpeg не найден на сервере — обработка не сработает. "
+                "Установите его (Termux: <code>pkg install ffmpeg</code>; "
+                "Docker-образ уже содержит ffmpeg).")
     await bot.send_message(
-        owner_id, "🎤 Выберите эффект голоса:",
-        reply_markup=keyboards.fv_kb())
+        owner_id, "🎤 Выберите эффект голоса:" + note,
+        reply_markup=keyboards.fv_kb(), parse_mode="HTML")
 
 
 async def cmd_story(bot, msg, bc_id, owner_id, arg, partner):
@@ -420,9 +469,38 @@ async def cmd_story(bot, msg, bc_id, owner_id, arg, partner):
         await bot.send_message(owner_id, f"🖼 Ошибка обработки: {escape(str(e))}")
 
 
+_CLOCK_EMOJI = {
+    0: "🕛", 1: "🕐", 2: "🕑", 3: "🕒", 4: "🕓", 5: "🕔",
+    6: "🕕", 7: "🕖", 8: "🕗", 9: "🕘", 10: "🕙", 11: "🕚",
+}
+
+
 async def cmd_time(bot, msg, bc_id, owner_id, arg, partner):
-    now = datetime.now().strftime("%H:%M")
-    await _edit_own(bot, msg, bc_id, f"🕐 {now}")
+    from datetime import timedelta, timezone
+    # Опциональный аргумент — смещение UTC, напр. ".time +3" или ".time -5"
+    tz = timezone.utc
+    off_txt = "UTC"
+    a = arg.strip().replace(" ", "")
+    if a:
+        try:
+            hours = int(a)
+            if -14 <= hours <= 14:
+                tz = timezone(timedelta(hours=hours))
+                off_txt = f"UTC{'+' if hours >= 0 else ''}{hours}"
+        except ValueError:
+            pass
+    else:
+        tz = None  # локальное время сервера
+        off_txt = "локальное"
+    now = datetime.now(tz)
+    clock = _CLOCK_EMOJI.get(now.hour % 12, "🕐")
+    formatted = f"{clock} {now.strftime('%H:%M')} ({off_txt})"
+    ok = await _edit_own(bot, msg, bc_id, formatted)
+    if not ok:
+        await bot.send_message(
+            owner_id,
+            f"{formatted}\n\nℹ️ Не удалось вписать время в сообщение "
+            "(возможно, сообщение уже не редактируется).")
 
 
 async def cmd_yars(bot, msg, bc_id, owner_id, arg, partner):
