@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 
 from bot.config import BOT_TOKEN, OWNER_ID
 from bot import storage
+from bot.keepalive import start_keepalive_server
 from bot.handlers import business, callbacks, admin
 
 logging.basicConfig(
@@ -27,6 +28,10 @@ async def main():
 
     await storage.init_db()
     logger.info("База данных инициализирована.")
+
+    # Health-сервер для keep-alive на бесплатных хостингах (Koyeb/Render).
+    # Бот при этом работает в обычном long-polling — вебхук не требуется.
+    keepalive_runner = await start_keepalive_server()
 
     bot = Bot(
         token=BOT_TOKEN,
@@ -55,6 +60,8 @@ async def main():
         await dp.start_polling(bot, allowed_updates=allowed)
     finally:
         await bot.session.close()
+        if keepalive_runner is not None:
+            await keepalive_runner.cleanup()
 
 
 if __name__ == "__main__":

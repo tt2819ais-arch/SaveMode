@@ -16,4 +16,8 @@ COPY . .
 ENV DB_PATH=/app/data/savemod.db
 RUN mkdir -p /app/data
 
+# Health-сервер для keep-alive (Koyeb/Render). Реальный порт берётся из $PORT.
+ENV PORT=8000
+EXPOSE 8000
+
 CMD ["python", "run.py"]

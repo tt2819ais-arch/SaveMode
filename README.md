@@ -101,10 +101,18 @@ python run.py
 события удаления сообщений в реальном времени. GitHub Actions cron **не подходит**
 (не 24/7 → пропустит удаления).
 
-Рекомендуемые бесплатные варианты:
-- **fly.io** (free tier)
-- **Oracle Cloud** (Always Free VM)
-- любой недорогой VPS
+📖 **Подробная пошаговая инструкция по бесплатному деплою без карты — в
+[DEPLOY.md](DEPLOY.md).**
+
+Бесплатные варианты без привязки карты (кратко):
+- **Koyeb** — карту обычно не спрашивают; + keep-alive пинг (UptimeRobot).
+- **Render** — карта точно не нужна; + keep-alive пинг (засыпает через 15 мин).
+- **Termux** на своём Android — самый надёжный, нужно только своё устройство.
+
+Для keep-alive у бота есть встроенный health-сервер (`/` и `/health`) на порту
+`PORT` (по умолчанию 8000) — пингуйте его каждые 5 минут через бесплатный
+UptimeRobot, чтобы хостинг не «усыплял» сервис. Вебхук настраивать не нужно —
+бот сам опрашивает Telegram (long-polling).
 
 ## 🔒 Безопасность
 
@@ -116,10 +124,11 @@ python run.py
 ## 🧱 Структура проекта
 
 ```
-run.py                 — точка входа
+run.py                 — точка входа (long-polling + health-сервер)
 bot/
   config.py            — конфигурация из ENV
   storage.py           — SQLite CRUD
+  keepalive.py         — health-сервер для keep-alive (Koyeb/Render)
   handlers/
     business.py        — подключение, удаление, правки, роутинг
     commands.py        — все .команды
@@ -130,7 +139,11 @@ bot/
   utils/
     constants.py       — тексты, описания, паттерны
     keyboards.py       — инлайн-клавиатуры
-    text_tools.py      — sw, kawaii, love, форматирование
+    text_tools.py      — sw, kawaii, love, форматирование, пересказ
+    audio.py           — обработка голоса через ffmpeg (.fv)
+    stt.py             — опц. транскрибация (Whisper) для .short
+tests/
+  test_logic.py        — юнит-тесты логики
 ```
 
 ---
