@@ -98,6 +98,41 @@ def test_commands_registry():
     assert sum(len(v) for v in grouped.values()) == 23
 
 
+def test_menu_counts_not_zero():
+    """Регресс на баг '(0)': счётчики категорий должны быть верными."""
+    from bot.utils import keyboards
+    from bot.utils.constants import CATEGORIES
+    grouped = get_commands_by_category()
+    # Ожидаемое распределение
+    expected = {"messages": 6, "games": 5, "processing": 10, "other": 2}
+    for key, exp in expected.items():
+        assert len(grouped.get(key, [])) == exp, (key, len(grouped.get(key, [])))
+    # Кнопки главного меню должны содержать реальные счётчики, а не (0)
+    kb = keyboards.main_menu_kb(is_owner=False)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    joined = " ".join(labels)
+    assert "(0)" not in joined, joined
+    assert "(6)" in joined and "(5)" in joined and "(10)" in joined and "(2)" in joined
+    # Категория games содержит ровно 5 команд-кнопок (+кнопка домой)
+    cat_kb = keyboards.category_kb("games")
+    cmd_btns = [b for row in cat_kb.inline_keyboard for b in row
+                if b.callback_data and b.callback_data.startswith("cmd:")]
+    assert len(cmd_btns) == 5
+
+
+def test_edit_diff():
+    """Регресс на 'изменённое сообщение не сохраняет'."""
+    from bot.handlers.business import edit_diff
+    # правка собеседника с реальным изменением → уведомляем
+    assert edit_diff("привет", "пока", from_user_id=222, owner_id=111) == ("привет", "пока")
+    # правка самого владельца → не уведомляем
+    assert edit_diff("привет", "пока", from_user_id=111, owner_id=111) is None
+    # текст не изменился → не уведомляем
+    assert edit_diff("привет", "привет", from_user_id=222, owner_id=111) is None
+    # нет старого текста → не уведомляем
+    assert edit_diff("", "новое", from_user_id=222, owner_id=111) is None
+
+
 async def _storage_flow():
     # уникальная БД для теста
     test_db = "/tmp/savemod_test.db"
@@ -117,6 +152,13 @@ async def _storage_flow():
     assert m["text"] == "hi"
     ms = await storage.get_messages("bc1", 5, [10, 999])
     assert len(ms) == 1
+    # view-once / медиа с локальным кэшем
+    await storage.save_message("bc1", 5, 11, 222, "Bob", "bob", "", "📷",
+                               "photo", "FILEID", '{"view_once": true}',
+                               1700000002, local_path="/tmp/vo_test.jpg")
+    m2 = await storage.get_message("bc1", 5, 11)
+    assert m2["local_path"] == "/tmp/vo_test.jpg"
+    assert m2["content_type"] == "photo"
     # afk
     await storage.set_afk(111, "sleeping")
     assert await storage.get_afk(111) == "sleeping"

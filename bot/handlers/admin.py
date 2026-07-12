@@ -102,6 +102,21 @@ async def cmd_help_slash(msg: Message):
         parse_mode="HTML")
 
 
+# ── Точка-команды в ЛИЧКЕ бота (тест-режим без Business Mode) ──
+# Регистрируется РАНЬШЕ общего перехватчика текста ниже.
+@router.message(F.chat.type == "private", F.text.startswith("."))
+async def on_private_dot_command(msg: Message, bot: Bot):
+    from bot.handlers import commands as cmd_handlers
+    # bc_id=None → тест-режим: результат отправляется обычным сообщением.
+    await cmd_handlers.dispatch_command(bot, msg, None, msg.from_user.id)
+
+
+@router.message(F.chat.type == "private", F.caption.startswith("."))
+async def on_private_dot_caption(msg: Message, bot: Bot):
+    from bot.handlers import commands as cmd_handlers
+    await cmd_handlers.dispatch_command(bot, msg, None, msg.from_user.id)
+
+
 # ── Приём текста для рассылки / DM (только владелец, в личке бота) ──
 @router.message(F.chat.type == "private", F.text)
 async def on_owner_private_text(msg: Message, bot: Bot):

@@ -19,7 +19,7 @@ def main_menu_kb(is_owner: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     grouped = get_commands_by_category()
     for cat_key, cat_title in CATEGORIES.items():
-        count = len(grouped.get(cat_title, []))
+        count = len(grouped.get(cat_key, []))
         kb.button(text=f"{cat_title} ({count})", callback_data=f"cat:{cat_key}")
     if is_owner:
         kb.button(text="🛠 Админ-панель", callback_data="admin_menu")
@@ -30,9 +30,8 @@ def main_menu_kb(is_owner: bool = False) -> InlineKeyboardMarkup:
 def category_kb(cat_key: str) -> InlineKeyboardMarkup:
     """Список команд в категории."""
     kb = InlineKeyboardBuilder()
-    cat_title = CATEGORIES.get(cat_key, "")
     grouped = get_commands_by_category()
-    cmds = grouped.get(cat_title, [])
+    cmds = grouped.get(cat_key, [])
     for cmd in cmds:
         idx = get_command_index(cmd[0])
         kb.button(text=cmd[0], callback_data=f"cmd:{idx}")

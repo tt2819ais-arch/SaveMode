@@ -40,7 +40,19 @@ def _parse(text: str) -> tuple[str, str]:
 
 async def _edit_own(bot: Bot, msg: Message, bc_id: str, new_text: str,
                     parse_mode: str | None = None) -> bool:
-    """Отредактировать исходящее сообщение владельца."""
+    """Отредактировать исходящее сообщение владельца.
+
+    В личке бота (bc_id пустой) редактировать чужое сообщение нельзя —
+    отправляем результат обычным сообщением (тест-режим).
+    """
+    if not bc_id:
+        try:
+            await bot.send_message(chat_id=msg.chat.id, text=new_text,
+                                   parse_mode=parse_mode)
+            return True
+        except Exception as e:
+            logger.warning("Не удалось отправить результат в личке: %s", e)
+            return False
     try:
         await bot.edit_message_text(
             chat_id=msg.chat.id,

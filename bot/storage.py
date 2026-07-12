@@ -23,9 +23,15 @@ async def init_db() -> None:
                 media_file_id TEXT DEFAULT '',
                 raw_json TEXT DEFAULT '{}',
                 date INTEGER DEFAULT 0,
+                local_path TEXT DEFAULT '',
                 PRIMARY KEY (business_connection_id, chat_id, message_id)
             )
         """)
+        # Миграция для старых БД: добавить local_path, если его нет.
+        try:
+            await db.execute("ALTER TABLE messages ADD COLUMN local_path TEXT DEFAULT ''")
+        except Exception:
+            pass  # колонка уже существует
         await db.execute("""
             CREATE TABLE IF NOT EXISTS connections (
                 id TEXT PRIMARY KEY,
@@ -74,18 +80,19 @@ async def save_message(
     bc_id: str, chat_id: int, message_id: int,
     from_user_id: int, from_first_name: str, from_username: str,
     text: str, caption: str, content_type: str,
-    media_file_id: str, raw_json: str, date: int
+    media_file_id: str, raw_json: str, date: int,
+    local_path: str = ""
 ) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             INSERT OR REPLACE INTO messages
             (business_connection_id, chat_id, message_id, from_user_id,
              from_first_name, from_username, text, caption, content_type,
-             media_file_id, raw_json, date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             media_file_id, raw_json, date, local_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (bc_id, chat_id, message_id, from_user_id,
               from_first_name, from_username, text, caption,
-              content_type, media_file_id, raw_json, date))
+              content_type, media_file_id, raw_json, date, local_path))
         await db.commit()
 
 

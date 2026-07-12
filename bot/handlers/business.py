@@ -1,14 +1,16 @@
 """Обработчики Business Mode: подключение, сообщения, удаление, редактирование."""
 import json
 import logging
+import os
 import time
 
 from aiogram import Router, Bot, F
 from aiogram.types import (
-    BusinessConnection, Message, BusinessMessagesDeleted,
+    BusinessConnection, Message, BusinessMessagesDeleted, FSInputFile,
 )
 
 from bot import storage
+from bot.config import DB_PATH
 from bot.utils import keyboards
 from bot.utils.constants import CONNECTION_TEXT
 from bot.utils.text_tools import escape, format_user, blockquote
@@ -17,6 +19,68 @@ from bot.handlers import commands as cmd_handlers
 
 logger = logging.getLogger(__name__)
 router = Router(name="business")
+
+# Папка для кэша медиа (нужна для одноразовых / view-once фото и видео —
+# их файлы самоуничтожаются, поэтому скачиваем байты сразу при получении).
+MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".", "media")
+os.makedirs(MEDIA_DIR, exist_ok=True)
+# Не качаем слишком большие файлы (Bot API отдаёт до 20 МБ).
+_MAX_DOWNLOAD = 20 * 1024 * 1024
+
+_EXT = {
+    "photo": "jpg", "video": "mp4", "voice": "ogg", "video_note": "mp4",
+    "audio": "mp3", "document": "bin", "animation": "mp4", "sticker": "webp",
+}
+
+
+def edit_diff(old_text: str, new_text: str,
+              from_user_id: int, owner_id: int):
+    """Решение об уведомлении о правке (чистая функция для тестов).
+
+    Возвращает (old, new) если нужно уведомить владельца, иначе None.
+    Правки самого владельца игнорируем; уведомляем только при реальном
+    изменении текста собеседника.
+    """
+    if owner_id and from_user_id == owner_id:
+        return None
+    if old_text and old_text != new_text:
+        return (old_text, new_text)
+    return None
+
+
+def _is_view_once(msg: Message) -> bool:
+    """Best-effort определение одноразового (view-once) медиа."""
+    # Разные версии Bot API/aiogram по-разному сигналят о self-destruct.
+    for attr in ("photo", "video", "voice", "video_note"):
+        obj = getattr(msg, attr, None)
+        if obj is not None and getattr(msg, "has_media_spoiler", False):
+            return True
+    # ttl-поля, если присутствуют в сыром объекте
+    return bool(getattr(msg, "ttl_seconds", None))
+
+
+async def _download_media(bot: Bot, ctype: str, file_id: str,
+                          bc_id: str, chat_id: int, message_id: int) -> str:
+    """Скачать медиа-байты в локальный кэш. Возвращает путь или ''.
+
+    Критично для одноразовых фото/видео: их file_id перестаёт работать
+    после просмотра/самоуничтожения, поэтому сохраняем содержимое сразу.
+    """
+    if not file_id or ctype in ("text", "other"):
+        return ""
+    try:
+        tf = await bot.get_file(file_id)
+        if (getattr(tf, "file_size", 0) or 0) > _MAX_DOWNLOAD:
+            return ""
+        ext = _EXT.get(ctype, "bin")
+        safe_bc = (bc_id or "dm").replace("/", "_")[:40]
+        fname = f"{safe_bc}_{chat_id}_{message_id}.{ext}"
+        path = os.path.join(MEDIA_DIR, fname)
+        await bot.download_file(tf.file_path, path)
+        return path
+    except Exception as e:
+        logger.warning("Не удалось скачать медиа (%s): %s", ctype, e)
+        return ""
 
 
 def _content_info(msg: Message) -> tuple[str, str, str]:
@@ -83,6 +147,14 @@ async def on_business_message(msg: Message, bot: Bot):
     fu_first = (frm.first_name if frm else "") or ""
     fu_user = (frm.username if frm else "") or ""
 
+    # Одноразовые (view-once) фото/видео/голосовые: скачиваем байты СРАЗУ,
+    # пока файл не самоуничтожился. Для остальных медиа тоже кэшируем —
+    # это делает восстановление удалённых надёжным (file_id может протухнуть).
+    local_path = ""
+    if file_id and ctype not in ("text", "other"):
+        local_path = await _download_media(
+            bot, ctype, file_id, bc_id, msg.chat.id, msg.message_id)
+
     # Сохраняем сообщение для восстановления при удалении
     try:
         await storage.save_message(
@@ -90,8 +162,11 @@ async def on_business_message(msg: Message, bot: Bot):
             from_user_id=fu_id, from_first_name=fu_first, from_username=fu_user,
             text=msg.text or "", caption=msg.caption or "",
             content_type=ctype, media_file_id=file_id,
-            raw_json=json.dumps({"date": msg.date.timestamp() if msg.date else 0}),
-            date=int(time.time()),
+            raw_json=json.dumps({
+                "date": msg.date.timestamp() if msg.date else 0,
+                "view_once": _is_view_once(msg),
+            }),
+            date=int(time.time()), local_path=local_path,
         )
     except Exception as e:
         logger.error("Ошибка сохранения сообщения: %s", e)
@@ -152,26 +227,27 @@ async def on_edited_business_message(msg: Message, bot: Bot):
     # Не уведомляем о правках самого владельца
     old = await storage.get_message(bc_id, msg.chat.id, msg.message_id)
     new_text = msg.text or msg.caption or "[медиа]"
+    old_text = ""
+    if old:
+        old_text = old["text"] or old["caption"] or "[медиа]"
 
-    if fu_id != owner_id:
-        old_text = ""
-        if old:
-            old_text = old["text"] or old["caption"] or "[медиа]"
-        if old_text and old_text != new_text:
-            try:
-                await bot.send_message(
-                    chat_id=owner_id,
-                    text=(
-                        f"✏️ {format_user(fu_first, fu_user)} "
-                        "отредактировал сообщение.\n\n"
-                        f"{blockquote(old_text)}\n"
-                        "⇩⇩⇩\n"
-                        f"{blockquote(new_text)}"
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                logger.warning("Ошибка отправки уведомления о правке: %s", e)
+    diff = edit_diff(old_text, new_text, fu_id, owner_id)
+    if diff:
+        was, now = diff
+        try:
+            await bot.send_message(
+                chat_id=owner_id,
+                text=(
+                    f"✏️ {format_user(fu_first, fu_user)} "
+                    "отредактировал сообщение.\n\n"
+                    f"{blockquote(was)}\n"
+                    "⇩⇩⇩\n"
+                    f"{blockquote(now)}"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning("Ошибка отправки уведомления о правке: %s", e)
 
     # Обновляем сохранённую версию
     ctype, _, file_id = _content_info(msg)
@@ -222,6 +298,18 @@ async def on_deleted_business_messages(event: BusinessMessagesDeleted, bot: Bot)
         ctype = m["content_type"]
         file_id = m["media_file_id"]
         body = m["text"] or m["caption"] or ""
+        # Для одноразовых/удалённых медиа file_id часто уже мёртв —
+        # берём локально сохранённые байты, если есть.
+        lp = m.get("local_path") or ""
+        src = FSInputFile(lp) if lp and os.path.exists(lp) else file_id
+        vo = ""
+        try:
+            vo = "🔥 (одноразовое) " if json.loads(
+                m.get("raw_json") or "{}").get("view_once") else ""
+        except Exception:
+            vo = ""
+        header = header.replace("🗑 <b>Это сообщение было удалено</b>",
+                                f"🗑 <b>{vo}Это сообщение было удалено</b>")
 
         try:
             if ctype == "text":
@@ -230,33 +318,33 @@ async def on_deleted_business_messages(event: BusinessMessagesDeleted, bot: Bot)
                     text=header + escape(body),
                     parse_mode="HTML",
                 )
-            elif ctype == "photo" and file_id:
-                await bot.send_photo(owner_id, file_id,
+            elif ctype == "photo" and src:
+                await bot.send_photo(owner_id, src,
                                      caption=header + escape(m["caption"] or ""),
                                      parse_mode="HTML")
-            elif ctype == "video" and file_id:
-                await bot.send_video(owner_id, file_id,
+            elif ctype == "video" and src:
+                await bot.send_video(owner_id, src,
                                      caption=header + escape(m["caption"] or ""),
                                      parse_mode="HTML")
-            elif ctype == "voice" and file_id:
-                await bot.send_voice(owner_id, file_id,
+            elif ctype == "voice" and src:
+                await bot.send_voice(owner_id, src,
                                      caption=header, parse_mode="HTML")
-            elif ctype == "video_note" and file_id:
+            elif ctype == "video_note" and src:
                 await bot.send_message(owner_id, header + "⭕ Видеокружок",
                                        parse_mode="HTML")
-                await bot.send_video_note(owner_id, file_id)
-            elif ctype == "audio" and file_id:
-                await bot.send_audio(owner_id, file_id,
+                await bot.send_video_note(owner_id, src)
+            elif ctype == "audio" and src:
+                await bot.send_audio(owner_id, src,
                                      caption=header, parse_mode="HTML")
-            elif ctype == "document" and file_id:
-                await bot.send_document(owner_id, file_id,
+            elif ctype == "document" and src:
+                await bot.send_document(owner_id, src,
                                         caption=header, parse_mode="HTML")
-            elif ctype == "sticker" and file_id:
+            elif ctype == "sticker" and src:
                 await bot.send_message(owner_id, header + escape(body),
                                        parse_mode="HTML")
-                await bot.send_sticker(owner_id, file_id)
-            elif ctype == "animation" and file_id:
-                await bot.send_animation(owner_id, file_id,
+                await bot.send_sticker(owner_id, src)
+            elif ctype == "animation" and src:
+                await bot.send_animation(owner_id, src,
                                          caption=header, parse_mode="HTML")
             else:
                 await bot.send_message(owner_id, header + escape(body or "📎 Медиа"),
