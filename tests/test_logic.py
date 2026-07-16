@@ -294,6 +294,48 @@ def test_button_style_serializes():
     assert '"style": "primary"' in payload
 
 
+def test_buttons_no_decorative_emoji():
+    """Меню/админ/навигация/игровые-экшены — чистый текст, без эмодзи.
+
+    Смысл несёт цвет (style), а не декоративный эмодзи. Клетки-состояния
+    игр (ttt/bw/wordle) — это контент, их не проверяем здесь.
+    """
+    import re
+    from bot.utils import keyboards
+    emoji_re = re.compile(
+        "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF"
+        "\u2190-\u21FF\u2B00-\u2BFF\uFE0F\u2705\u274C\u2699]")
+    kbs = [
+        keyboards.main_menu_kb(is_owner=True, active_cmd=".calc"),
+        keyboards.connection_kb(),
+        keyboards.onboarding_kb("MaksimkaXyila_bot"),
+        keyboards.admin_menu_kb(),
+        keyboards.admin_back_kb(),
+        keyboards.broadcast_confirm_kb(),
+        keyboards.game_invite_kb("g1"),
+        keyboards.dice_kb("g1"),
+        keyboards.flip_kb("g1"),
+        keyboards.duel_kb("g1"),
+        keyboards.fv_kb(),
+    ]
+    for kb in kbs:
+        for row in kb.inline_keyboard:
+            for b in row:
+                assert not emoji_re.search(b.text), f"эмодзи в кнопке: {b.text!r}"
+
+
+def test_profile_edit_url_button():
+    """Кнопка 'Редактирование профиля' — URL на tg://settings/edit."""
+    from bot.utils import keyboards
+    kb = keyboards.onboarding_kb("MaksimkaXyila_bot")
+    btns = [b for row in kb.inline_keyboard for b in row
+            if "Редактирование профиля" in b.text]
+    assert btns and btns[0].url == "tg://settings/edit"
+    # старый callback profile_edit больше не используется
+    assert all(getattr(b, "callback_data", None) != "profile_edit"
+               for row in kb.inline_keyboard for b in row)
+
+
 def test_tools_calc():
     from bot.utils import tools
     assert tools.calc("(2+3)*4 / 2") == 10

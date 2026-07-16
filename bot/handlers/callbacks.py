@@ -98,24 +98,9 @@ async def cb_dialogs(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.callback_query(F.data == "profile_edit")
-async def cb_profile_edit(cb: CallbackQuery):
-    text = (
-        "📝 <b>Как подключить бота (редактирование профиля)</b>\n\n"
-        "1. Откройте <b>Настройки Telegram</b>.\n"
-        "2. Раздел <b>«Telegram для бизнеса»</b> "
-        "(Settings → Telegram Business).\n"
-        "3. Пункт <b>«Чат-боты»</b> (Chatbots).\n"
-        "4. Вставьте скопированный <b>@username</b> бота.\n"
-        "5. Дайте все разрешения на работу с сообщениями.\n\n"
-        "<i>Нужен Telegram Premium. Прямой ссылки на этот экран Telegram "
-        "не предоставляет — поэтому открываем настройки вручную.</i>")
-    try:
-        await cb.message.edit_text(
-            text, reply_markup=keyboards.connection_kb(), parse_mode="HTML")
-    except Exception:
-        await cb.message.answer(text, parse_mode="HTML")
-    await cb.answer()
+# Примечание: кнопка «Редактирование профиля» теперь URL-кнопка
+# (url="tg://settings/edit") и открывает настройки напрямую, поэтому
+# отдельный callback-обработчик profile_edit больше не нужен.
 
 
 # ── Админ-панель ──

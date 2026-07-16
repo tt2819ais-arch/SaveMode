@@ -78,38 +78,38 @@ def onboarding_kb(bot_username: str) -> InlineKeyboardMarkup:
         kb.row(InlineKeyboardButton(
             text="Скопировать юзернейм",
             copy_text=CopyTextButton(text=uname)))
-    kb.row(InlineKeyboardButton(text="💬 Диалоги", callback_data="dialogs"))
+    kb.row(InlineKeyboardButton(text="Диалоги", callback_data="dialogs"))
     kb.row(InlineKeyboardButton(
-        text="📝 Редактирование профиля", callback_data="profile_edit"))
+        text="Редактирование профиля", url="tg://settings/edit"))
     kb.row(InlineKeyboardButton(
-        text="❓ Описание команд", callback_data="cmd_menu", style=PRIMARY))
+        text="Описание команд", callback_data="cmd_menu", style=PRIMARY))
     return kb.as_markup()
 
 
 # --- Админ-панель ---
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="👥 Список пользователей", callback_data="admin_users")
-    kb.button(text="📊 Статистика", callback_data="admin_stats")
-    kb.button(text="📢 Рассылка всем", callback_data="admin_broadcast")
-    kb.button(text="✉️ Написать пользователю", callback_data="admin_dm")
-    kb.button(text="🏠 Главное меню", callback_data="cmd_home", style=PRIMARY)
+    kb.button(text="Список пользователей", callback_data="admin_users")
+    kb.button(text="Статистика", callback_data="admin_stats")
+    kb.button(text="Рассылка всем", callback_data="admin_broadcast")
+    kb.button(text="Написать пользователю", callback_data="admin_dm")
+    kb.button(text="Главное меню", callback_data="cmd_home", style=PRIMARY)
     kb.adjust(1)
     return kb.as_markup()
 
 
 def admin_back_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Назад в админ-панель", callback_data="admin_menu",
+    kb.button(text="Назад в админ-панель", callback_data="admin_menu",
               style=PRIMARY)
     return kb.as_markup()
 
 
 def broadcast_confirm_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Отправить всем", callback_data="admin_bc_confirm",
+    kb.button(text="Отправить всем", callback_data="admin_bc_confirm",
               style=SUCCESS)
-    kb.button(text="❌ Отмена", callback_data="admin_menu", style=DANGER)
+    kb.button(text="Отмена", callback_data="admin_menu", style=DANGER)
     kb.adjust(1)
     return kb.as_markup()
 
@@ -117,9 +117,9 @@ def broadcast_confirm_kb() -> InlineKeyboardMarkup:
 # --- Игры ---
 def game_invite_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Принять игру", callback_data=f"game_accept:{game_id}",
+    kb.button(text="Принять игру", callback_data=f"game_accept:{game_id}",
               style=SUCCESS)
-    kb.button(text="❌ Отменить", callback_data=f"game_cancel:{game_id}",
+    kb.button(text="Отменить", callback_data=f"game_cancel:{game_id}",
               style=DANGER)
     kb.adjust(1)
     return kb.as_markup()
@@ -137,24 +137,24 @@ def ttt_kb(game_id: str, board: list) -> InlineKeyboardMarkup:
 
 def duel_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="⚔️ Атака", callback_data=f"duel:{game_id}:attack")
-    kb.button(text="🛡 Защита", callback_data=f"duel:{game_id}:defend")
-    kb.button(text="💨 Уклонение", callback_data=f"duel:{game_id}:dodge")
+    kb.button(text="Атака", callback_data=f"duel:{game_id}:attack")
+    kb.button(text="Защита", callback_data=f"duel:{game_id}:defend")
+    kb.button(text="Уклонение", callback_data=f"duel:{game_id}:dodge")
     kb.adjust(3)
     return kb.as_markup()
 
 
 def dice_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🎲 Бросить кубик", callback_data=f"dice:{game_id}:roll",
+    kb.button(text="Бросить кубик", callback_data=f"dice:{game_id}:roll",
               style=SUCCESS)
     return kb.as_markup()
 
 
 def flip_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🦅 Орёл", callback_data=f"flip:{game_id}:heads")
-    kb.button(text="🪙 Решка", callback_data=f"flip:{game_id}:tails")
+    kb.button(text="Орёл", callback_data=f"flip:{game_id}:heads")
+    kb.button(text="Решка", callback_data=f"flip:{game_id}:tails")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -171,11 +171,11 @@ def bw_kb(game_id: str, board: list) -> InlineKeyboardMarkup:
 
 def fv_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🐿 Бурундук", callback_data="fv:chipmunk")
-    kb.button(text="👹 Демон", callback_data="fv:demon")
-    kb.button(text="🐌 Медленно", callback_data="fv:slow")
-    kb.button(text="⚡ Быстро", callback_data="fv:fast")
-    kb.button(text="🌀 Эхо", callback_data="fv:echo")
-    kb.button(text="🤖 Робот", callback_data="fv:robot")
+    kb.button(text="Бурундук", callback_data="fv:chipmunk")
+    kb.button(text="Демон", callback_data="fv:demon")
+    kb.button(text="Медленно", callback_data="fv:slow")
+    kb.button(text="Быстро", callback_data="fv:fast")
+    kb.button(text="Эхо", callback_data="fv:echo")
+    kb.button(text="Робот", callback_data="fv:robot")
     kb.adjust(3)
     return kb.as_markup()
