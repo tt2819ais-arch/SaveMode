@@ -8,29 +8,34 @@ from bot.utils.constants import (
     COMMANDS, get_commands_by_category, get_command_index, button_label,
 )
 
-# Маркер «сюда нажимать» — зелёный кружок внутри подписи кнопки.
-GREEN = "🟢 "
+# Реальные цвета кнопок Telegram Bot API (поле InlineKeyboardButton.style).
+# success = зелёная, primary = синяя, danger = красная.
+SUCCESS = "success"   # 🟢 «сюда нажимать» / подтвердить
+PRIMARY = "primary"   # 🔵 нейтральная навигация
+DANGER = "danger"     # 🔴 отмена / отключить / деструктив
 
 
 def connection_kb() -> InlineKeyboardMarkup:
-    """Кнопка 'Команды и функционал' при подключении."""
+    """Кнопка 'Команды и функционал' при подключении (синяя навигация)."""
     kb = InlineKeyboardBuilder()
-    kb.button(text="Команды и функционал", callback_data="cmd_menu")
+    kb.button(text="Команды и функционал", callback_data="cmd_menu",
+              style=PRIMARY)
     return kb.as_markup()
 
 
 def _command_grid(builder: InlineKeyboardBuilder, active_cmd: str | None):
     """Заполнить builder плиткой кнопок команд (рядами по 3).
 
-    Кнопка активной команды помечается зелёным кружком 🟢 (обновляется
-    динамически через edit_message_reply_markup).
+    Кнопка активной команды красится в зелёный (style="success") —
+    настоящий цвет фона, «сюда нажимать». Обновляется динамически через
+    edit_message_reply_markup. Остальные кнопки — стандартного цвета,
+    чтобы был один зелёный акцент, а не «радуга» (UX-совет из статьи).
     """
     for name, _short, _full, _cat in COMMANDS:
         idx = get_command_index(name)
         label = button_label(name)
-        if active_cmd == name:
-            label = GREEN + label
-        builder.button(text=label, callback_data=f"cmd:{idx}")
+        style = SUCCESS if active_cmd == name else None
+        builder.button(text=label, callback_data=f"cmd:{idx}", style=style)
     builder.adjust(3)
 
 
@@ -38,14 +43,16 @@ def main_menu_kb(is_owner: bool = False,
                  active_cmd: str | None = None) -> InlineKeyboardMarkup:
     """Плоское меню-грид всех команд (стиль референса).
 
-    active_cmd — команда, помеченная зелёным маркером 🟢 «сюда нажимать».
+    active_cmd — команда, покрашенная в зелёный (success) «сюда нажимать».
+    Навигация («Назад», «Админ-панель») — синяя (primary).
     """
     kb = InlineKeyboardBuilder()
     _command_grid(kb, active_cmd)
     tail = InlineKeyboardBuilder()
     if is_owner:
-        tail.button(text="Админ-панель", callback_data="admin_menu")
-    tail.button(text="‹ Назад", callback_data="cmd_welcome")
+        tail.button(text="Админ-панель", callback_data="admin_menu",
+                    style=PRIMARY)
+    tail.button(text="‹ Назад", callback_data="cmd_welcome", style=PRIMARY)
     tail.adjust(1)
     kb.attach(tail)
     return kb.as_markup()
@@ -75,7 +82,7 @@ def onboarding_kb(bot_username: str) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(
         text="📝 Редактирование профиля", callback_data="profile_edit"))
     kb.row(InlineKeyboardButton(
-        text="❓ Описание команд", callback_data="cmd_menu"))
+        text="❓ Описание команд", callback_data="cmd_menu", style=PRIMARY))
     return kb.as_markup()
 
 
@@ -86,21 +93,23 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📊 Статистика", callback_data="admin_stats")
     kb.button(text="📢 Рассылка всем", callback_data="admin_broadcast")
     kb.button(text="✉️ Написать пользователю", callback_data="admin_dm")
-    kb.button(text="🏠 Главное меню", callback_data="cmd_home")
+    kb.button(text="🏠 Главное меню", callback_data="cmd_home", style=PRIMARY)
     kb.adjust(1)
     return kb.as_markup()
 
 
 def admin_back_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Назад в админ-панель", callback_data="admin_menu")
+    kb.button(text="⬅️ Назад в админ-панель", callback_data="admin_menu",
+              style=PRIMARY)
     return kb.as_markup()
 
 
 def broadcast_confirm_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Отправить всем", callback_data="admin_bc_confirm")
-    kb.button(text="❌ Отмена", callback_data="admin_menu")
+    kb.button(text="✅ Отправить всем", callback_data="admin_bc_confirm",
+              style=SUCCESS)
+    kb.button(text="❌ Отмена", callback_data="admin_menu", style=DANGER)
     kb.adjust(1)
     return kb.as_markup()
 
@@ -108,8 +117,10 @@ def broadcast_confirm_kb() -> InlineKeyboardMarkup:
 # --- Игры ---
 def game_invite_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Принять игру", callback_data=f"game_accept:{game_id}")
-    kb.button(text="❌ Отменить", callback_data=f"game_cancel:{game_id}")
+    kb.button(text="✅ Принять игру", callback_data=f"game_accept:{game_id}",
+              style=SUCCESS)
+    kb.button(text="❌ Отменить", callback_data=f"game_cancel:{game_id}",
+              style=DANGER)
     kb.adjust(1)
     return kb.as_markup()
 
@@ -135,7 +146,8 @@ def duel_kb(game_id: str) -> InlineKeyboardMarkup:
 
 def dice_kb(game_id: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🎲 Бросить кубик", callback_data=f"dice:{game_id}:roll")
+    kb.button(text="🎲 Бросить кубик", callback_data=f"dice:{game_id}:roll",
+              style=SUCCESS)
     return kb.as_markup()
 
 

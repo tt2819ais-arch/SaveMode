@@ -124,11 +124,20 @@ def test_flat_menu_structure():
     # Есть кнопка 'Назад', нет счётчиков '(0)'
     assert any("Назад" in l for l in labels)
     assert "(0)" not in " ".join(labels)
-    # Зелёный маркер появляется на активной команде
+    # Активная команда красится в зелёный (реальный style="success").
     kb2 = keyboards.main_menu_kb(active_cmd=".qr")
-    marked = [b.text for row in kb2.inline_keyboard for b in row
-              if b.callback_data == f"cmd:{get_command_index('.qr')}"]
-    assert marked and marked[0].startswith("🟢")
+    active_btns = [b for row in kb2.inline_keyboard for b in row
+                   if b.callback_data == f"cmd:{get_command_index('.qr')}"]
+    assert active_btns and active_btns[0].style == "success"
+    # Прочие команды — без стиля (один зелёный акцент, а не «радуга»).
+    others = [b for row in kb2.inline_keyboard for b in row
+              if b.callback_data and b.callback_data.startswith("cmd:")
+              and b.callback_data != f"cmd:{get_command_index('.qr')}"]
+    assert all(b.style is None for b in others)
+    # Навигация «Назад» — синяя (primary).
+    nav = [b for row in kb2.inline_keyboard for b in row
+           if b.callback_data == "cmd_welcome"]
+    assert nav and nav[0].style == "primary"
     # menu_text перечисляет категории и команды
     mt = menu_text()
     assert "Инструменты" in mt and ".qr" in mt
@@ -245,6 +254,44 @@ async def _storage_flow():
 
 def test_storage():
     asyncio.run(_storage_flow())
+
+
+def test_button_styles_valid():
+    """Все style у кнопок — только допустимые значения Bot API."""
+    from bot.utils import keyboards
+    valid = {"success", "primary", "danger", None}
+    kbs = [
+        keyboards.main_menu_kb(is_owner=True, active_cmd=".calc"),
+        keyboards.connection_kb(),
+        keyboards.onboarding_kb("MaksimkaXyila_bot"),
+        keyboards.admin_menu_kb(),
+        keyboards.broadcast_confirm_kb(),
+        keyboards.game_invite_kb("g1"),
+        keyboards.dice_kb("g1"),
+        keyboards.command_detail_kb(0),
+    ]
+    for kb in kbs:
+        for row in kb.inline_keyboard:
+            for b in row:
+                assert getattr(b, "style", None) in valid, (b.text, b.style)
+    # Подтверждение рассылки: success + danger.
+    bc = keyboards.broadcast_confirm_kb()
+    styles = [b.style for row in bc.inline_keyboard for b in row]
+    assert "success" in styles and "danger" in styles
+    # Приглашение в игру: accept=success, cancel=danger.
+    gi = keyboards.game_invite_kb("g1")
+    gstyles = [b.style for row in gi.inline_keyboard for b in row]
+    assert "success" in gstyles and "danger" in gstyles
+
+
+def test_button_style_serializes():
+    """style реально попадает в JSON-разметку для Telegram."""
+    import json
+    from bot.utils import keyboards
+    kb = keyboards.main_menu_kb(active_cmd=".calc")
+    payload = json.dumps(kb.model_dump(exclude_none=True))
+    assert '"style": "success"' in payload
+    assert '"style": "primary"' in payload
 
 
 def test_tools_calc():

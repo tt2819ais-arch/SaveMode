@@ -61,7 +61,7 @@ async def cb_command_detail(cb: CallbackQuery):
         await cb.answer("Команда не найдена", show_alert=True)
         return
     name, short, full, cat = COMMANDS[idx]
-    # Показываем описание + грид с 🟢 «сюда нажимать» на текущей команде.
+    # Показываем описание + грид с зелёной (success) кнопкой на текущей команде.
     body = strip_lead_emoji(full)
     try:
         await cb.message.edit_text(

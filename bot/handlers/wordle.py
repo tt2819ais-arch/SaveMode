@@ -13,11 +13,12 @@
 Обратная связь по буквам (как в Wordle, с корректной обработкой повторов):
   🟩 буква на своём месте · 🟨 буква есть, но не там · ⬜ буквы нет в слове.
 
-Важно (ограничение Telegram Bot API): у InlineKeyboardButton НЕТ свойства
-цвета/стиля (danger/primary/success — это про Mini-Apps, не про инлайн-кнопки).
-Поэтому цвет фона кнопок задать нельзя. Классическое и единственно рабочее
-решение — цветные квадраты-эмодзи. Мы рендерим доску как ряды инлайн-кнопок,
-где текст каждой кнопки = «БУКВА+квадрат» (например «П🟩»).
+Про цвет кнопок: Telegram Bot API поддерживает поле InlineKeyboardButton.style
+(success=зелёная, primary=синяя, danger=красная) — мы используем его в меню
+и игровых кнопках. НО жёлтого стиля в API нет, а Wordle требует ЖЁЛТЫЙ
+(буква есть, но не на месте). Поэтому доску мы по-прежнему рендерим цветными
+квадратами-эмодзи (🟩🟨⬜) в тексте кнопок «БУКВА+квадрат» (например «П🟩»),
+а style применяем к служебной кнопке «Сдаться».
 """
 import logging
 import uuid
@@ -134,7 +135,8 @@ def board_kb(game: dict) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton(text="⬛", callback_data="noop")
                          for _ in range(WORD_LEN)])
         rows.append([InlineKeyboardButton(
-            text="🏳 Сдаться", callback_data=f"wordle_giveup:{game['game_id']}")])
+            text="🏳 Сдаться", callback_data=f"wordle_giveup:{game['game_id']}",
+            style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
