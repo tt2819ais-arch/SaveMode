@@ -107,6 +107,14 @@ async def maybe_afk_reply(bot: Bot, msg: Message, bc_id: str, reason: str):
         logger.warning("AFK-автоответ не отправлен: %s", e)
 
 
+# Команды, которые ЗАМЕНЯЮТ (редактируют) исходное сообщение владельца
+# результатом — их триггер удалять НЕ нужно (иначе пропадёт и результат).
+EDIT_IN_PLACE_COMMANDS = {
+    ".kawaii", ".love", ".sw", ".type", ".calc", ".mock", ".rev", ".roll",
+    ".pick", ".b64", ".spoiler", ".tr", ".status", ".time",
+}
+
+
 async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
     """Роутер команд владельца."""
     raw = msg.text or msg.caption or ""
@@ -114,6 +122,24 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
 
     # Определить username собеседника
     partner = msg.chat.username or ""
+
+    # Переключатель авто-удаления команд (.autodel on|off) — не в меню.
+    if cmd == ".autodel":
+        state = arg.strip().lower()
+        if state in ("on", "вкл", "1", "да"):
+            await storage.set_setting(owner_id, "autodelete", "1")
+            await bot.send_message(owner_id, "✅ Авто-удаление команд включено.")
+        elif state in ("off", "выкл", "0", "нет"):
+            await storage.set_setting(owner_id, "autodelete", "0")
+            await bot.send_message(owner_id, "✅ Авто-удаление команд выключено.")
+        else:
+            cur = await storage.get_setting(owner_id, "autodelete", "1")
+            await bot.send_message(
+                owner_id,
+                f"Авто-удаление сейчас: <b>{'вкл' if cur == '1' else 'выкл'}</b>.\n"
+                "Переключить: <code>.autodel on</code> / <code>.autodel off</code>",
+                parse_mode="HTML")
+        return
 
     handlers = {
         ".help": cmd_help,
@@ -134,6 +160,17 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
         ".yars": cmd_yars,
         ".gosu": cmd_gosu,
         ".lq": cmd_lq,
+        ".qr": cmd_qr,
+        ".tr": cmd_tr,
+        ".calc": cmd_calc,
+        ".pass": cmd_pass,
+        ".mock": cmd_mock,
+        ".rev": cmd_rev,
+        ".roll": cmd_roll,
+        ".pick": cmd_pick,
+        ".count": cmd_count,
+        ".b64": cmd_b64,
+        ".spoiler": cmd_spoiler,
     }
 
     # Игры
@@ -169,9 +206,10 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
 # ══════════ КОМАНДЫ ══════════
 
 async def cmd_help(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils.constants import menu_text
     await bot.send_message(
         chat_id=owner_id,
-        text="📋 <b>Меню команд SaveMOD</b>\n\nВыберите категорию:",
+        text=menu_text(),
         reply_markup=keyboards.main_menu_kb(is_owner=True),
         parse_mode="HTML",
     )
@@ -601,3 +639,136 @@ async def cmd_lq(bot, msg, bc_id, owner_id, arg, partner):
         await bot.send_message(owner_id, "📉 Требуется библиотека Pillow.")
     except Exception as e:
         await bot.send_message(owner_id, f"📉 Ошибка: {escape(str(e))}")
+
+
+# ══════════ ИНСТРУМЕНТЫ (новые команды) ══════════
+
+def _reply_or_arg(msg: Message, arg: str) -> str:
+    """Взять аргумент, либо текст сообщения-ответа."""
+    if arg:
+        return arg
+    r = getattr(msg, "reply_to_message", None)
+    if r is not None:
+        return (r.text or r.caption or "")
+    return ""
+
+
+async def cmd_qr(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    data = _reply_or_arg(msg, arg)
+    if not data.strip():
+        await bot.send_message(owner_id, "Использование: <code>.qr текст/ссылка</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        png = tools.make_qr_png(data)
+    except Exception as e:
+        await bot.send_message(owner_id, f"QR: {escape(str(e))}")
+        return
+    from aiogram.types import BufferedInputFile
+    photo = BufferedInputFile(png, filename="qr.png")
+    try:
+        await bot.send_photo(chat_id=msg.chat.id, photo=photo,
+                             caption="QR-код", business_connection_id=bc_id or None)
+    except Exception:
+        await bot.send_photo(chat_id=owner_id, photo=photo, caption="QR-код")
+
+
+async def cmd_tr(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    src = _reply_or_arg(msg, arg)
+    lang, text = tools.parse_tr_args(src)
+    if not text.strip():
+        await bot.send_message(owner_id,
+                               "Использование: <code>.tr en текст</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        translated = await tools.translate(text, lang)
+    except Exception as e:
+        logger.warning("Ошибка перевода: %s", e)
+        await bot.send_message(owner_id, "Не удалось перевести (сервис недоступен).")
+        return
+    await _edit_own(bot, msg, bc_id, translated)
+
+
+async def cmd_calc(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    expr = _reply_or_arg(msg, arg)
+    try:
+        res = tools.calc(expr)
+        out = f"{expr.strip()} = {res}"
+    except Exception as e:
+        out = f"Ошибка: {e}"
+    await _edit_own(bot, msg, bc_id, out)
+
+
+async def cmd_pass(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    try:
+        length = int(arg.strip()) if arg.strip() else 16
+    except ValueError:
+        length = 16
+    pwd = tools.gen_password(length)
+    # Пароль отправляем ТОЛЬКО в личку владельцу, не в чат.
+    await bot.send_message(owner_id, f"🔐 Пароль ({len(pwd)} симв.):\n<code>{escape(pwd)}</code>",
+                           parse_mode="HTML")
+
+
+async def cmd_mock(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    text = _reply_or_arg(msg, arg)
+    await _edit_own(bot, msg, bc_id, tools.mock_case(text) or "—")
+
+
+async def cmd_rev(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    text = _reply_or_arg(msg, arg)
+    await _edit_own(bot, msg, bc_id, tools.reverse_text(text) or "—")
+
+
+async def cmd_roll(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    try:
+        out = tools.roll(arg)
+    except Exception as e:
+        out = f"Ошибка: {e}"
+    await _edit_own(bot, msg, bc_id, out, parse_mode="HTML")
+
+
+async def cmd_pick(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    try:
+        out = f"🎲 {tools.pick(arg)}"
+    except Exception as e:
+        out = f"Ошибка: {e}"
+    await _edit_own(bot, msg, bc_id, out)
+
+
+async def cmd_count(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    text = _reply_or_arg(msg, arg)
+    await bot.send_message(owner_id, tools.count_text(text), parse_mode="HTML")
+
+
+async def cmd_b64(bot, msg, bc_id, owner_id, arg, partner):
+    from bot.utils import tools
+    parts = arg.split(maxsplit=1)
+    if len(parts) < 2:
+        await bot.send_message(owner_id,
+                               "Использование: <code>.b64 e|d текст</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        out = tools.b64(parts[0], parts[1])
+    except Exception as e:
+        out = f"Ошибка: {e}"
+    await _edit_own(bot, msg, bc_id, out)
+
+
+async def cmd_spoiler(bot, msg, bc_id, owner_id, arg, partner):
+    text = _reply_or_arg(msg, arg)
+    if not text.strip():
+        return
+    await _edit_own(bot, msg, bc_id,
+                    f"<tg-spoiler>{escape(text)}</tg-spoiler>", parse_mode="HTML")

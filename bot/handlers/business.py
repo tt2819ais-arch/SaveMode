@@ -20,6 +20,29 @@ from bot.handlers import commands as cmd_handlers
 logger = logging.getLogger(__name__)
 router = Router(name="business")
 
+
+async def _maybe_autodelete(bot: Bot, msg: Message, bc_id: str,
+                            owner_id: int) -> None:
+    """Удалить сообщение-триггер команды владельца, если включено авто-удаление.
+
+    Пропускаем команды, которые редактируют исходное сообщение результатом
+    (иначе удалится и результат). Работает только в business-чате (bc_id).
+    """
+    if not bc_id:
+        return
+    raw = msg.text or msg.caption or ""
+    cmd = raw.split(maxsplit=1)[0].lower() if raw else ""
+    if cmd in cmd_handlers.EDIT_IN_PLACE_COMMANDS:
+        return
+    try:
+        enabled = await storage.get_setting(owner_id, "autodelete", "1")
+        if enabled != "1":
+            return
+        await bot.delete_business_messages(
+            business_connection_id=bc_id, message_ids=[msg.message_id])
+    except Exception as e:
+        logger.debug("Авто-удаление команды не удалось: %s", e)
+
 # Папка для кэша медиа (нужна для одноразовых / view-once фото и видео —
 # их файлы самоуничтожаются, поэтому скачиваем байты сразу при получении).
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".", "media")
@@ -196,6 +219,7 @@ async def on_business_message(msg: Message, bot: Bot):
     is_owner_msg = owner_id and fu_id == owner_id
     if msg.text and msg.text.startswith(".") and is_owner_msg:
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)
+        await _maybe_autodelete(bot, msg, bc_id, owner_id)
         return
 
     # Wordle: догадка собеседника в активной игре этого чата.
@@ -209,6 +233,7 @@ async def on_business_message(msg: Message, bot: Bot):
     # Если контент от владельца — точка-команда с медиа (например .check с фото)
     if msg.caption and msg.caption.startswith(".") and is_owner_msg:
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)
+        await _maybe_autodelete(bot, msg, bc_id, owner_id)
         return
 
     # AFK-автоответ: если владелец в AFK и пишет НЕ владелец

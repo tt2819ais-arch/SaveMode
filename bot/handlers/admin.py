@@ -72,19 +72,14 @@ async def cmd_start(msg: Message, bot: Bot):
         await wordle.handle_start_deeplink(bot, msg, parts[1])
         return
 
-    is_owner = msg.from_user.id == OWNER_ID
-    text = (
-        "👋 <b>SaveMOD</b> — бот для Telegram Business Mode.\n\n"
-        "Подключите меня через Настройки → Telegram Business → "
-        "Чат-боты, и я буду:\n"
-        "🗑 сохранять удалённые сообщения\n"
-        "✏️ показывать правки сообщений\n"
-        "🚨 предупреждать о мошенниках\n"
-        "🎮 давать игры и полезные команды\n\n"
-        "Нажмите кнопку, чтобы увидеть все команды."
-    )
+    from bot.utils.constants import ONBOARDING_TEXT
+    try:
+        me = await bot.get_me()
+        uname = me.username or ""
+    except Exception:
+        uname = ""
     await msg.answer(
-        text, reply_markup=keyboards.main_menu_kb(is_owner=is_owner),
+        ONBOARDING_TEXT, reply_markup=keyboards.onboarding_kb(uname),
         parse_mode="HTML")
 
 
@@ -102,9 +97,10 @@ async def cmd_admin(msg: Message):
 # ── /help ──
 @router.message(Command("help"))
 async def cmd_help_slash(msg: Message):
+    from bot.utils.constants import menu_text
     is_owner = msg.from_user.id == OWNER_ID
     await msg.answer(
-        "📋 <b>Меню команд SaveMOD</b>\n\nВыберите категорию:",
+        menu_text(),
         reply_markup=keyboards.main_menu_kb(is_owner=is_owner),
         parse_mode="HTML")
 

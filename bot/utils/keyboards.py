@@ -1,61 +1,81 @@
 """Построение inline-клавиатур."""
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.utils.constants import (
-    COMMANDS, CATEGORIES, get_commands_by_category, get_command_index,
+    COMMANDS, get_commands_by_category, get_command_index, button_label,
 )
+
+# Маркер «сюда нажимать» — зелёный кружок внутри подписи кнопки.
+GREEN = "🟢 "
 
 
 def connection_kb() -> InlineKeyboardMarkup:
     """Кнопка 'Команды и функционал' при подключении."""
     kb = InlineKeyboardBuilder()
-    kb.button(text="📋 Команды и функционал", callback_data="cmd_menu")
+    kb.button(text="Команды и функционал", callback_data="cmd_menu")
     return kb.as_markup()
 
 
-def main_menu_kb(is_owner: bool = False) -> InlineKeyboardMarkup:
-    """Главное меню категорий."""
+def _command_grid(builder: InlineKeyboardBuilder, active_cmd: str | None):
+    """Заполнить builder плиткой кнопок команд (рядами по 3).
+
+    Кнопка активной команды помечается зелёным кружком 🟢 (обновляется
+    динамически через edit_message_reply_markup).
+    """
+    for name, _short, _full, _cat in COMMANDS:
+        idx = get_command_index(name)
+        label = button_label(name)
+        if active_cmd == name:
+            label = GREEN + label
+        builder.button(text=label, callback_data=f"cmd:{idx}")
+    builder.adjust(3)
+
+
+def main_menu_kb(is_owner: bool = False,
+                 active_cmd: str | None = None) -> InlineKeyboardMarkup:
+    """Плоское меню-грид всех команд (стиль референса).
+
+    active_cmd — команда, помеченная зелёным маркером 🟢 «сюда нажимать».
+    """
     kb = InlineKeyboardBuilder()
-    grouped = get_commands_by_category()
-    for cat_key, cat_title in CATEGORIES.items():
-        count = len(grouped.get(cat_key, []))
-        kb.button(text=f"{cat_title} ({count})", callback_data=f"cat:{cat_key}")
+    _command_grid(kb, active_cmd)
+    tail = InlineKeyboardBuilder()
     if is_owner:
-        kb.button(text="🛠 Админ-панель", callback_data="admin_menu")
-    kb.adjust(1)
+        tail.button(text="Админ-панель", callback_data="admin_menu")
+    tail.button(text="‹ Назад", callback_data="cmd_welcome")
+    tail.adjust(1)
+    kb.attach(tail)
     return kb.as_markup()
 
 
-def category_kb(cat_key: str) -> InlineKeyboardMarkup:
-    """Список команд в категории."""
-    kb = InlineKeyboardBuilder()
-    grouped = get_commands_by_category()
-    cmds = grouped.get(cat_key, [])
-    for cmd in cmds:
-        idx = get_command_index(cmd[0])
-        kb.button(text=cmd[0], callback_data=f"cmd:{idx}")
-    kb.adjust(3)
-    kb.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="cmd_home"))
-    return kb.as_markup()
+# Совместимость: category_kb больше не используется в новом меню, но
+# оставлена как тонкая обёртка (плоский грид), чтобы не ломать вызовы.
+def category_kb(cat_key: str) -> InlineKeyboardMarkup:  # pragma: no cover
+    return main_menu_kb()
 
 
 def command_detail_kb(index: int) -> InlineKeyboardMarkup:
-    """Клавиатура для детального описания команды с зацикленной навигацией."""
-    total = len(COMMANDS)
-    prev_idx = (index - 1) % total
-    next_idx = (index + 1) % total
-    cat_key = COMMANDS[index][3]
+    """Клавиатура под описанием команды: тот же грид с 🟢 на активной."""
+    active = COMMANDS[index][0]
+    return main_menu_kb(active_cmd=active)
+
+
+def onboarding_kb(bot_username: str) -> InlineKeyboardMarkup:
+    """Кнопки под /start (как в референсе)."""
     kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="⬅️ Пред.", callback_data=f"cmd:{prev_idx}"),
-        InlineKeyboardButton(text=f"{index + 1}/{total}", callback_data="noop"),
-        InlineKeyboardButton(text="След. ➡️", callback_data=f"cmd:{next_idx}"),
-    )
-    kb.row(
-        InlineKeyboardButton(text="⬅️ К категории", callback_data=f"cat:{cat_key}"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="cmd_home"),
-    )
+    uname = f"@{bot_username}" if bot_username else ""
+    if uname:
+        kb.row(InlineKeyboardButton(
+            text="Скопировать юзернейм",
+            copy_text=CopyTextButton(text=uname)))
+    kb.row(InlineKeyboardButton(text="💬 Диалоги", callback_data="dialogs"))
+    kb.row(InlineKeyboardButton(
+        text="📝 Редактирование профиля", callback_data="profile_edit"))
+    kb.row(InlineKeyboardButton(
+        text="❓ Описание команд", callback_data="cmd_menu"))
     return kb.as_markup()
 
 

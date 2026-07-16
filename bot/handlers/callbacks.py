@@ -8,7 +8,9 @@ from aiogram.types import CallbackQuery
 from bot import storage
 from bot.config import OWNER_ID
 from bot.utils import keyboards
-from bot.utils.constants import COMMANDS, CATEGORIES
+from bot.utils.constants import (
+    COMMANDS, CONNECTION_TEXT, menu_text, strip_lead_emoji,
+)
 from bot.utils.text_tools import escape
 from bot.handlers import games
 
@@ -22,36 +24,27 @@ async def cb_noop(cb: CallbackQuery):
     await cb.answer()
 
 
-# ── Меню команд ──
+# ── Меню команд (плоский грид, как в референсе) ──
 @router.callback_query(F.data == "cmd_menu")
 @router.callback_query(F.data == "cmd_home")
 async def cb_menu(cb: CallbackQuery):
     is_owner = cb.from_user.id == OWNER_ID
+    text = menu_text()
+    kb = keyboards.main_menu_kb(is_owner=is_owner)
     try:
-        await cb.message.edit_text(
-            "📋 <b>Меню команд SaveMOD</b>\n\nВыберите категорию:",
-            reply_markup=keyboards.main_menu_kb(is_owner=is_owner),
-            parse_mode="HTML",
-        )
+        await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
-        await cb.message.answer(
-            "📋 <b>Меню команд SaveMOD</b>\n\nВыберите категорию:",
-            reply_markup=keyboards.main_menu_kb(is_owner=is_owner),
-            parse_mode="HTML",
-        )
+        await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("cat:"))
-async def cb_category(cb: CallbackQuery):
-    cat_key = cb.data.split(":", 1)[1]
-    cat_title = CATEGORIES.get(cat_key, "Категория")
+# ── Назад к приветствию/подключению ──
+@router.callback_query(F.data == "cmd_welcome")
+async def cb_welcome(cb: CallbackQuery):
     try:
         await cb.message.edit_text(
-            f"{cat_title}\n\nВыберите команду:",
-            reply_markup=keyboards.category_kb(cat_key),
-            parse_mode="HTML",
-        )
+            CONNECTION_TEXT, reply_markup=keyboards.connection_kb(),
+            parse_mode="HTML")
     except Exception:
         pass
     await cb.answer()
@@ -68,14 +61,60 @@ async def cb_command_detail(cb: CallbackQuery):
         await cb.answer("Команда не найдена", show_alert=True)
         return
     name, short, full, cat = COMMANDS[idx]
+    # Показываем описание + грид с 🟢 «сюда нажимать» на текущей команде.
+    body = strip_lead_emoji(full)
     try:
         await cb.message.edit_text(
-            full,
+            body,
             reply_markup=keyboards.command_detail_kb(idx),
             parse_mode="HTML",
         )
     except Exception:
         pass
+    await cb.answer()
+
+
+# ── Кнопки онбординга ──
+@router.callback_query(F.data == "dialogs")
+async def cb_dialogs(cb: CallbackQuery):
+    if cb.from_user.id != OWNER_ID:
+        await cb.answer("Доступно только владельцу.", show_alert=True)
+        return
+    rows = await storage.get_recent_chats(limit=10)
+    if not rows:
+        text = ("💬 <b>Диалоги</b>\n\nПока нет сохранённых сообщений. "
+                "Подключите бота в Business-режиме — и здесь появятся "
+                "чаты, за которыми он следит.")
+    else:
+        lines = ["💬 <b>Отслеживаемые диалоги</b>\n"]
+        for name, cnt in rows:
+            lines.append(f"• {escape(name or 'Без имени')} — {cnt} сообщ.")
+        text = "\n".join(lines)
+    try:
+        await cb.message.edit_text(
+            text, reply_markup=keyboards.connection_kb(), parse_mode="HTML")
+    except Exception:
+        await cb.message.answer(text, parse_mode="HTML")
+    await cb.answer()
+
+
+@router.callback_query(F.data == "profile_edit")
+async def cb_profile_edit(cb: CallbackQuery):
+    text = (
+        "📝 <b>Как подключить бота (редактирование профиля)</b>\n\n"
+        "1. Откройте <b>Настройки Telegram</b>.\n"
+        "2. Раздел <b>«Telegram для бизнеса»</b> "
+        "(Settings → Telegram Business).\n"
+        "3. Пункт <b>«Чат-боты»</b> (Chatbots).\n"
+        "4. Вставьте скопированный <b>@username</b> бота.\n"
+        "5. Дайте все разрешения на работу с сообщениями.\n\n"
+        "<i>Нужен Telegram Premium. Прямой ссылки на этот экран Telegram "
+        "не предоставляет — поэтому открываем настройки вручную.</i>")
+    try:
+        await cb.message.edit_text(
+            text, reply_markup=keyboards.connection_kb(), parse_mode="HTML")
+    except Exception:
+        await cb.message.answer(text, parse_mode="HTML")
     await cb.answer()
 
 

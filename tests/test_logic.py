@@ -83,41 +83,60 @@ def test_stakes_and_effects():
 
 
 def test_commands_registry():
-    assert len(COMMANDS) == 24
+    assert len(COMMANDS) == 35
     # все имена уникальны и начинаются с точки
     names = [c[0] for c in COMMANDS]
-    assert len(set(names)) == 24
+    assert len(set(names)) == 35
     assert all(n.startswith(".") for n in names)
     # индексация работает
     assert get_command_index(".help") >= 0
     assert get_command_index(".nonexistent") == -1
-    # запрещённые команды отсутствуют
-    for banned in (".crash", ".spam", ".zaebu", ".dox", ".clone", ".mute"):
+    # запрещённые команды отсутствуют (HARD RULE)
+    for banned in (".crash", ".spam", ".zaebu", ".dox", ".clone", ".mute",
+                   ".troll"):
         assert banned not in names
+    # новые инструменты присутствуют
+    for tool in (".qr", ".tr", ".calc", ".pass", ".mock", ".rev", ".roll",
+                 ".pick", ".count", ".b64", ".spoiler"):
+        assert tool in names
     grouped = get_commands_by_category()
-    assert sum(len(v) for v in grouped.values()) == 24
+    assert sum(len(v) for v in grouped.values()) == 35
 
 
-def test_menu_counts_not_zero():
-    """Регресс на баг '(0)': счётчики категорий должны быть верными."""
-    from bot.utils import keyboards
-    from bot.utils.constants import CATEGORIES
+def test_category_distribution():
     grouped = get_commands_by_category()
-    # Ожидаемое распределение
-    expected = {"messages": 6, "games": 6, "processing": 10, "other": 2}
+    expected = {"messages": 6, "tools": 11, "games": 6,
+                "processing": 10, "other": 2}
     for key, exp in expected.items():
         assert len(grouped.get(key, [])) == exp, (key, len(grouped.get(key, [])))
-    # Кнопки главного меню должны содержать реальные счётчики, а не (0)
+
+
+def test_flat_menu_structure():
+    """Новое плоское меню: кнопка на каждую команду + маркер 🟢 + 'Назад'."""
+    from bot.utils import keyboards
+    from bot.utils.constants import menu_text, button_label
     kb = keyboards.main_menu_kb(is_owner=False)
-    labels = [b.text for row in kb.inline_keyboard for b in row]
-    joined = " ".join(labels)
-    assert "(0)" not in joined, joined
-    assert "(6)" in joined and "(10)" in joined and "(2)" in joined
-    # Категория games содержит ровно 5 команд-кнопок (+кнопка домой)
-    cat_kb = keyboards.category_kb("games")
-    cmd_btns = [b for row in cat_kb.inline_keyboard for b in row
+    cmd_btns = [b for row in kb.inline_keyboard for b in row
                 if b.callback_data and b.callback_data.startswith("cmd:")]
-    assert len(cmd_btns) == 6
+    # По кнопке на каждую команду
+    assert len(cmd_btns) == len(COMMANDS)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    # Есть кнопка 'Назад', нет счётчиков '(0)'
+    assert any("Назад" in l for l in labels)
+    assert "(0)" not in " ".join(labels)
+    # Зелёный маркер появляется на активной команде
+    kb2 = keyboards.main_menu_kb(active_cmd=".qr")
+    marked = [b.text for row in kb2.inline_keyboard for b in row
+              if b.callback_data == f"cmd:{get_command_index('.qr')}"]
+    assert marked and marked[0].startswith("🟢")
+    # menu_text перечисляет категории и команды
+    mt = menu_text()
+    assert "Инструменты" in mt and ".qr" in mt
+    assert "Нажми на кнопку" in mt
+    # admin-кнопка только для владельца
+    kb_owner = keyboards.main_menu_kb(is_owner=True)
+    assert any((b.callback_data == "admin_menu")
+               for row in kb_owner.inline_keyboard for b in row)
 
 
 def test_wordle_scoring():
@@ -226,6 +245,87 @@ async def _storage_flow():
 
 def test_storage():
     asyncio.run(_storage_flow())
+
+
+def test_tools_calc():
+    from bot.utils import tools
+    assert tools.calc("(2+3)*4 / 2") == 10
+    assert tools.calc("2**8") == 256
+    assert tools.calc("sqrt(144)") == 12
+    assert tools.calc("10 % 3") == 1
+    assert tools.calc("abs(-5) + round(2.4)") == 7
+    # опасные конструкции запрещены
+    for bad in ("__import__('os')", "open('x')", "a = 1", "os.system('x')"):
+        try:
+            tools.calc(bad)
+            assert False, f"должно было упасть: {bad}"
+        except Exception:
+            pass
+
+
+def test_tools_password():
+    from bot.utils import tools
+    p = tools.gen_password(20)
+    assert len(p) == 20
+    assert any(c.isdigit() for c in p) and any(c.isupper() for c in p)
+    assert len(tools.gen_password(2)) == 4       # нижняя граница
+    assert len(tools.gen_password(999)) == 128    # верхняя граница
+    assert tools.gen_password(16) != tools.gen_password(16)  # случайность
+
+
+def test_tools_text():
+    from bot.utils import tools
+    assert tools.mock_case("abcd") == "aBcD"
+    assert tools.reverse_text("привет") == "тевирп"
+    assert tools.b64("e", "hi") == "aGk="
+    assert tools.b64("d", "aGk=") == "hi"
+    try:
+        tools.b64("d", "!!!notbase64!!!")
+        assert False
+    except Exception:
+        pass
+
+
+def test_tools_roll_pick_count():
+    from bot.utils import tools
+    for _ in range(50):
+        out = tools.roll("6")
+        num = int(out.split("<b>")[1].split("</b>")[0])
+        assert 1 <= num <= 6
+    assert "=" in tools.roll("3d6")
+    assert tools.pick("a | b | c") in ("a", "b", "c")
+    try:
+        tools.pick("только один")
+        assert False
+    except Exception:
+        pass
+    stats = tools.count_text("hello world\nfoo")
+    assert "Слов: <b>3</b>" in stats
+    assert "Строк: <b>2</b>" in stats
+
+
+def test_tools_tr_args():
+    from bot.utils import tools
+    assert tools.parse_tr_args("en привет") == ("en", "привет")
+    assert tools.parse_tr_args("hello world") == ("ru", "hello world")
+    assert tools.parse_tr_args("de Hallo Welt") == ("de", "Hallo Welt")
+
+
+def test_tools_qr():
+    from bot.utils import tools
+    png = tools.make_qr_png("https://t.me/test")
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"   # PNG-заголовок
+    assert len(png) > 100
+
+
+def test_autodelete_set_logic():
+    """EDIT_IN_PLACE команды не должны авто-удаляться."""
+    from bot.handlers.commands import EDIT_IN_PLACE_COMMANDS
+    assert ".kawaii" in EDIT_IN_PLACE_COMMANDS
+    assert ".calc" in EDIT_IN_PLACE_COMMANDS
+    # команды с отдельным выводом НЕ в списке (их триггер удаляется)
+    assert ".qr" not in EDIT_IN_PLACE_COMMANDS
+    assert ".nk" not in EDIT_IN_PLACE_COMMANDS
 
 
 if __name__ == "__main__":
