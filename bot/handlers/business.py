@@ -198,6 +198,14 @@ async def on_business_message(msg: Message, bot: Bot):
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)
         return
 
+    # Wordle: догадка собеседника в активной игре этого чата.
+    from bot.handlers import wordle
+    if msg.text and msg.chat.id in wordle._active_chats and wordle._looks_like_guess(msg.text):
+        handled = await wordle.handle_guess(
+            bot, msg, bc_id, fu_id, fu_first or "Игрок")
+        if handled:
+            return
+
     # Если контент от владельца — точка-команда с медиа (например .check с фото)
     if msg.caption and msg.caption.startswith(".") and is_owner_msg:
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)

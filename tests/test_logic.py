@@ -83,10 +83,10 @@ def test_stakes_and_effects():
 
 
 def test_commands_registry():
-    assert len(COMMANDS) == 23
+    assert len(COMMANDS) == 24
     # все имена уникальны и начинаются с точки
     names = [c[0] for c in COMMANDS]
-    assert len(set(names)) == 23
+    assert len(set(names)) == 24
     assert all(n.startswith(".") for n in names)
     # индексация работает
     assert get_command_index(".help") >= 0
@@ -95,7 +95,7 @@ def test_commands_registry():
     for banned in (".crash", ".spam", ".zaebu", ".dox", ".clone", ".mute"):
         assert banned not in names
     grouped = get_commands_by_category()
-    assert sum(len(v) for v in grouped.values()) == 23
+    assert sum(len(v) for v in grouped.values()) == 24
 
 
 def test_menu_counts_not_zero():
@@ -104,7 +104,7 @@ def test_menu_counts_not_zero():
     from bot.utils.constants import CATEGORIES
     grouped = get_commands_by_category()
     # Ожидаемое распределение
-    expected = {"messages": 6, "games": 5, "processing": 10, "other": 2}
+    expected = {"messages": 6, "games": 6, "processing": 10, "other": 2}
     for key, exp in expected.items():
         assert len(grouped.get(key, [])) == exp, (key, len(grouped.get(key, [])))
     # Кнопки главного меню должны содержать реальные счётчики, а не (0)
@@ -112,12 +112,55 @@ def test_menu_counts_not_zero():
     labels = [b.text for row in kb.inline_keyboard for b in row]
     joined = " ".join(labels)
     assert "(0)" not in joined, joined
-    assert "(6)" in joined and "(5)" in joined and "(10)" in joined and "(2)" in joined
+    assert "(6)" in joined and "(10)" in joined and "(2)" in joined
     # Категория games содержит ровно 5 команд-кнопок (+кнопка домой)
     cat_kb = keyboards.category_kb("games")
     cmd_btns = [b for row in cat_kb.inline_keyboard for b in row
                 if b.callback_data and b.callback_data.startswith("cmd:")]
-    assert len(cmd_btns) == 5
+    assert len(cmd_btns) == 6
+
+
+def test_wordle_scoring():
+    from bot.handlers.wordle import (
+        score_guess, is_win, validate_word, normalize_word,
+    )
+    # Точное совпадение → всё зелёное
+    assert score_guess("ЗАМОК", "ЗАМОК") == ["green"] * 5
+    assert is_win(score_guess("ЗАМОК", "ЗАМОК"))
+    # Полностью мимо (нет пересечения букв)
+    assert score_guess("ФЫВАП", "ЮБЬДЖ") == ["grey"] * 5
+    # Классический EN пример с дублями:
+    # secret ALLOY, guess LOLLY:
+    #  L(0): в слове есть L, но позиция 0 = A → yellow (1 L доступна)
+    #  O(1): в слове есть O (поз3), но здесь поз1 → yellow
+    #  L(2): вторая L — в ALLOY только одна L осталась? ALLOY имеет L на поз1,2.
+    #        secret=ALLOY: A L L O Y. guess=LOLLY: L O L L Y
+    marks = score_guess("ALLOY", "LOLLY")
+    #  поз0 L vs A: L есть (2 шт) → yellow
+    #  поз1 O vs L: O есть (поз3) → yellow
+    #  поз2 L vs L: green
+    #  поз3 L vs O: осталась 1 L (2-1зел-1жёлт=0) → grey
+    #  поз4 Y vs Y: green
+    assert marks == ["yellow", "yellow", "green", "grey", "green"], marks
+    # Дубли в догадке при одной букве в слове:
+    # secret CIGAR, guess AGAIN → буквы A(поз3),I(поз1),G(поз2)
+    m2 = score_guess("CIGAR", "AGAIN")
+    # A: в CIGAR одна A (поз3). guess A на поз0 → yellow, вторая A поз2 → grey
+    assert m2[0] == "yellow" and m2[2] == "grey", m2
+    assert not is_win(m2)
+    # Валидация
+    ok, w, _ = validate_word("привет")  # 6 букв
+    assert not ok
+    ok, w, _ = validate_word("замок")
+    assert ok and w == "ЗАМОК"
+    ok, w, _ = validate_word("hello")
+    assert ok and w == "HELLO"
+    ok, _, _ = validate_word("прив1")  # цифра
+    assert not ok
+    ok, _, _ = validate_word("abвгд")  # смешанные алфавиты
+    assert not ok
+    # ё → е нормализация
+    assert normalize_word("ёжикЁ") == "ЕЖИКЕ"
 
 
 def test_edit_diff():

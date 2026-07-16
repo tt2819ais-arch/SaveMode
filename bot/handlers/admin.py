@@ -64,7 +64,14 @@ async def do_broadcast(bot: Bot, text: str) -> tuple[int, int]:
 
 # ── /start ──
 @router.message(Command("start"))
-async def cmd_start(msg: Message):
+async def cmd_start(msg: Message, bot: Bot):
+    # Deep-link для Wordle: /start wordle_<game_id>
+    parts = (msg.text or "").split(maxsplit=1)
+    if len(parts) == 2 and parts[1].startswith("wordle_"):
+        from bot.handlers import wordle
+        await wordle.handle_start_deeplink(bot, msg, parts[1])
+        return
+
     is_owner = msg.from_user.id == OWNER_ID
     text = (
         "👋 <b>SaveMOD</b> — бот для Telegram Business Mode.\n\n"
@@ -115,6 +122,24 @@ async def on_private_dot_command(msg: Message, bot: Bot):
 async def on_private_dot_caption(msg: Message, bot: Bot):
     from bot.handlers import commands as cmd_handlers
     await cmd_handlers.dispatch_command(bot, msg, None, msg.from_user.id)
+
+
+# ── Wordle: приём секретного слова в личке (любой игрок) ──
+# Точные фильтры срабатывают только когда игрок реально в контексте Wordle,
+# поэтому обычные сообщения владельца (рассылка/DM) не перехватываются.
+from bot.handlers import wordle as _wordle
+
+
+@router.message(F.chat.type == "private", _wordle.is_setting_word)
+async def on_wordle_set_word(msg: Message, bot: Bot):
+    await _wordle.set_secret_word(bot, msg)
+
+
+@router.message(_wordle.is_guess_context)
+async def on_wordle_guess(msg: Message, bot: Bot):
+    name = (msg.from_user.first_name if msg.from_user else "Игрок") or "Игрок"
+    await _wordle.handle_guess(
+        bot, msg, None, msg.from_user.id, name)
 
 
 # ── Приём текста для рассылки / DM (только владелец, в личке бота) ──

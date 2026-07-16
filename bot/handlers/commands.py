@@ -143,6 +143,12 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
         pname = (msg.from_user.first_name if msg.from_user else "Игрок") or "Игрок"
         await games.start_game(bot, msg, gtype, bc_id, owner_id, pname)
         return
+    if cmd == ".wordle":
+        from bot.handlers import wordle
+        initiator = (msg.from_user.id if msg.from_user else owner_id)
+        pname = (msg.from_user.first_name if msg.from_user else "Игрок") or "Игрок"
+        await wordle.start_wordle(bot, msg, bc_id, initiator, pname)
+        return
 
     handler = handlers.get(cmd)
     if handler:

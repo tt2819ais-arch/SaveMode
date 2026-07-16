@@ -259,6 +259,38 @@ async def cb_fv(cb: CallbackQuery, bot: Bot):
         await cb.message.answer("🎤 Обработал, но не смог отправить результат.")
 
 
+# ══════════ WORDLE ══════════
+
+@router.callback_query(F.data.startswith("wordle_giveup:"))
+async def cb_wordle_giveup(cb: CallbackQuery, bot: Bot):
+    from bot.handlers import wordle
+    game_id = cb.data.split(":", 1)[1]
+    ok, text = await wordle.give_up(bot, game_id, cb.from_user.id)
+    if not ok:
+        await cb.answer(text, show_alert=True)
+        return
+    try:
+        g = await storage.get_game(game_id)
+        await cb.message.edit_text(
+            wordle._board_text(g, "🏳 " + text),
+            reply_markup=wordle.board_kb(g), parse_mode="HTML")
+    except Exception:
+        try:
+            await cb.message.answer(text, parse_mode="HTML")
+        except Exception:
+            pass
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("wordle_setup:"))
+async def cb_wordle_setup(cb: CallbackQuery):
+    # Фолбэк, если deep-link недоступен (нет username у бота).
+    await cb.answer(
+        "Откройте личку со мной и отправьте команду /start "
+        f"wordle_{cb.data.split(':', 1)[1]}, затем загадайте слово.",
+        show_alert=True)
+
+
 # ══════════ ИГРЫ ══════════
 
 @router.callback_query(F.data.startswith("game_cancel:"))
