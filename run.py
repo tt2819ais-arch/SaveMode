@@ -18,6 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("savemod")
 
+# Маркер сборки — по нему видно, какой билд реально запущен на хосте.
+# Если в логе НЕ видно этой строки после git pull + restart — крутится старый код.
+BUILD = "2026-07-17 buttons-color+diag"
+
 
 async def main():
     if not BOT_TOKEN:
@@ -44,7 +48,10 @@ async def main():
     dp.include_router(business.router)
 
     me = await bot.get_me()
-    logger.info("Бот запущен: @%s (id=%s)", me.username, me.id)
+    logger.info("=== SaveMOD BUILD: %s ===", BUILD)
+    logger.info("Бот запущен: @%s (id=%s) can_connect_to_business=%s",
+                me.username, me.id,
+                getattr(me, "can_connect_to_business", False))
     if not getattr(me, "can_connect_to_business", False):
         logger.warning(
             "⚠️ can_connect_to_business=False! Включите Business Mode "

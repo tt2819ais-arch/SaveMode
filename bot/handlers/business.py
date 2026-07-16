@@ -161,6 +161,8 @@ async def on_business_connection(conn: BusinessConnection, bot: Bot):
 @router.business_message()
 async def on_business_message(msg: Message, bot: Bot):
     bc_id = msg.business_connection_id
+    logger.info("📥 business_message получен: chat=%s msg_id=%s bc=%s",
+                msg.chat.id, msg.message_id, bc_id)
     conn = await storage.get_connection(bc_id)
     owner_id = conn["user_id"] if conn else None
 
@@ -247,6 +249,8 @@ async def on_business_message(msg: Message, bot: Bot):
 @router.edited_business_message()
 async def on_edited_business_message(msg: Message, bot: Bot):
     bc_id = msg.business_connection_id
+    logger.info("✏️ edited_business_message: chat=%s msg_id=%s bc=%s",
+                msg.chat.id, msg.message_id, bc_id)
     conn = await storage.get_connection(bc_id)
     owner_id = conn["user_id"] if conn else None
     if not owner_id:
@@ -300,6 +304,8 @@ async def on_edited_business_message(msg: Message, bot: Bot):
 @router.deleted_business_messages()
 async def on_deleted_business_messages(event: BusinessMessagesDeleted, bot: Bot):
     bc_id = event.business_connection_id
+    logger.info("🗑 deleted_business_messages: chat=%s ids=%s bc=%s",
+                event.chat.id, list(event.message_ids), bc_id)
     conn = await storage.get_connection(bc_id)
     owner_id = conn["user_id"] if conn else None
     if not owner_id:
