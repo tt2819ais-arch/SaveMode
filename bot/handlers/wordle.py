@@ -10,17 +10,12 @@
     business_message). В обычной личке с ботом (тест-режим) загадывающий может
     угадывать сам — удобно для проверки в одиночку.
 
-Обратная связь по буквам (как в Wordle, с корректной обработкой повторов):
-  🟩 буква на своём месте · 🟨 буква есть, но не там · ⬜ буквы нет в слове.
-
-Про цвет кнопок: Telegram Bot API поддерживает поле InlineKeyboardButton.style
-(success=зелёная, primary=синяя, danger=красная). Клетки доски раскрашиваем
-САМИ КНОПКИ, а не эмодзи-квадраты в тексте:
-  • буква на своём месте → style=success (зелёная кнопка), текст = буква;
-  • буквы нет в слове    → без style (серая кнопка), текст = буква;
-  • буква есть, но не там → жёлтого style в API НЕТ, поэтому это ЕДИНСТВЕННЫЙ
-    оставшийся эмодзи-фолбэк: 🟨 рядом с буквой.
-Служебная кнопка «Сдаться» — style=danger (красная).
+Обратная связь по буквам — НАТИВНЫМИ цветными кнопками (InlineKeyboardButton.style),
+БЕЗ эмодзи. В Telegram Bot API ровно 3 цвета: success/primary/danger. Маппинг:
+  • буква на своём месте → success (зелёная), текст = буква;
+  • буква есть, но не там → primary (синяя), текст = буква  (жёлтого в API нет);
+  • буквы нет в слове     → danger  (красная), текст = буква.
+Служебная кнопка «Сдаться» — тоже danger (красная).
 """
 import logging
 import uuid
@@ -37,7 +32,9 @@ logger = logging.getLogger(__name__)
 WORD_LEN = 5
 MAX_ATTEMPTS = 6
 
-SQUARE = {"green": "🟩", "yellow": "🟨", "grey": "⬜"}
+# Легенда цветов (текст сообщения — здесь цвета НАЗЫВАЕМ, кнопки красит style):
+LEGEND = ("🟢 зелёная — буква на месте · 🔵 синяя — буква есть, но не там · "
+          "🔴 красная — буквы нет")
 
 # Быстрые in-memory индексы (для точных фильтров без обращения к БД):
 _awaiting_word: dict[int, str] = {}   # user_id (в личке) -> game_id
@@ -118,18 +115,22 @@ def is_guess_context(msg: Message) -> bool:
 
 # ─────────────────────────── РЕНДЕР ДОСКИ ───────────────────────────
 
+CELL_STYLE = {
+    "green": "success",   # буква на своём месте  → зелёная кнопка
+    "yellow": "primary",  # буква есть, но не там → синяя кнопка (жёлтого в API нет)
+    "grey": "danger",     # буквы нет в слове     → красная кнопка
+}
+
+
 def _cell(ch: str, mark: str) -> InlineKeyboardButton:
-    """Клетка доски. Цвет несёт САМА кнопка через style:
-      green → style=success (зелёная), текст = буква;
-      grey  → без style (серая по умолчанию), текст = буква;
-      yellow → жёлтого style в API НЕТ, поэтому единственный эмодзи-фолбэк 🟨.
+    """Клетка доски. Цвет несёт САМА кнопка через нативный style — БЕЗ эмодзи.
+
+    В Telegram Bot API ровно 3 цвета кнопок: success(зелёный)/primary(синий)/
+    danger(красный). Жёлтого нет, поэтому «буква есть, но не там» = синий.
+    Текст кнопки = только буква.
     """
-    if mark == "green":
-        return InlineKeyboardButton(text=ch, callback_data="noop",
-                                    style="success")
-    if mark == "yellow":
-        return InlineKeyboardButton(text=f"{ch}🟨", callback_data="noop")
-    return InlineKeyboardButton(text=ch, callback_data="noop")
+    return InlineKeyboardButton(text=ch, callback_data="noop",
+                                style=CELL_STYLE[mark])
 
 
 def board_kb(game: dict) -> InlineKeyboardMarkup:
@@ -158,10 +159,10 @@ def _board_text(game: dict, extra: str = "") -> str:
     used = len(st.get("guesses", []))
     left = MAX_ATTEMPTS - used
     setter = escape(game["player1_name"] or "Игрок")
-    head = (f"🟩 <b>Wordle</b> — угадай слово из {WORD_LEN} букв\n"
+    head = (f"<b>Wordle</b> — угадай слово из {WORD_LEN} букв\n"
             f"🔐 Загадал: {setter}\n")
     if game["status"] == "active":
-        head += (f"Попыток осталось: <b>{left}</b>\n\n"
+        head += (f"Попыток осталось: <b>{left}</b>\n{LEGEND}\n\n"
                  "Напишите слово из 5 букв прямо в чат.")
     if extra:
         head += f"\n\n{extra}"
@@ -192,7 +193,7 @@ async def start_wordle(bot: Bot, msg: Message, bc_id, initiator_id: int,
     except Exception:
         deep = ""
 
-    text = (f"🟩 <b>Wordle</b>\n\n"
+    text = (f"<b>Wordle</b>\n\n"
             f"👤 {escape(initiator_name)} запускает игру!\n\n"
             "Шаг 1: нажми кнопку ниже — откроется личка со мной, "
             "загадай там секретное слово из 5 букв.\n"
@@ -212,13 +213,13 @@ async def handle_start_deeplink(bot: Bot, msg: Message, payload: str) -> bool:
     game_id = payload[len("wordle_"):]
     g = await storage.get_game(game_id)
     if not g or g["game_type"] != "wordle":
-        await msg.answer("🟩 Эта игра Wordle не найдена или уже завершена.")
+        await msg.answer("Эта игра Wordle не найдена или уже завершена.")
         return True
     if g["status"] != "waiting_word":
-        await msg.answer("🟩 Слово для этой игры уже загадано.")
+        await msg.answer("Слово для этой игры уже загадано.")
         return True
     if msg.from_user.id != g["player1_id"]:
-        await msg.answer("🟩 Загадывает слово только тот, кто запустил игру.")
+        await msg.answer("Загадывает слово только тот, кто запустил игру.")
         return True
     _awaiting_word[msg.from_user.id] = game_id
     await msg.answer(
@@ -241,7 +242,7 @@ async def set_secret_word(bot: Bot, msg: Message) -> None:
     g = await storage.get_game(game_id)
     if not g or g["status"] != "waiting_word":
         _awaiting_word.pop(uid, None)
-        await msg.answer("🟩 Игра уже недоступна.")
+        await msg.answer("Игра уже недоступна.")
         return
     st = g["state"]
     st["secret"] = word

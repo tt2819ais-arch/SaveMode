@@ -456,12 +456,12 @@ async def _render_bw(cb, g):
     state = g["state"]
     turn_id = g["current_turn"]
     turn_name = g["player1_name"] if turn_id == g["player1_id"] else g["player2_name"]
-    color = "🟦" if turn_id == g["player1_id"] else "🟥"
+    color = "🔵" if turn_id == g["player1_id"] else "🔴"
     c1 = state["board"].count(1)
     c2 = state["board"].count(2)
     text = (f"🎨 <b>Закрась поле</b>\n\n"
-            f"🟦 {escape(g['player1_name'])}: {c1}  |  "
-            f"🟥 {escape(g['player2_name'])}: {c2}\n\n"
+            f"🔵 {escape(g['player1_name'])}: {c1}  |  "
+            f"🔴 {escape(g['player2_name'])}: {c2}\n\n"
             f"Ход: {escape(turn_name)} ({color})")
     try:
         await cb.message.edit_text(
@@ -511,7 +511,7 @@ async def cb_bw(cb: CallbackQuery):
         try:
             await cb.message.edit_text(
                 f"🎨 <b>Игра окончена</b>\n\n"
-                f"🟦 {c1}  |  🟥 {c2}\n\n{res}", parse_mode="HTML")
+                f"🔵 {c1}  |  🔴 {c2}\n\n{res}", parse_mode="HTML")
         except Exception:
             pass
         await cb.answer()

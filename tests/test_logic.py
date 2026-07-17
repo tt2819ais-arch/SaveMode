@@ -191,22 +191,63 @@ def test_wordle_scoring():
     assert normalize_word("ёжикЁ") == "ЕЖИКЕ"
 
 
+# Все квадраты/кружки, которыми РАНЬШЕ имитировали цвет кнопок.
+_COLOR_EMOJI = "🟩🟨🟥🟦🟧🟪🟫🟢🔵🔴🟠🟡⬜⬛"
+
+
+def _no_color_emoji(text: str) -> bool:
+    return not any(ch in _COLOR_EMOJI for ch in (text or ""))
+
+
 def test_wordle_cell_colors():
-    """Клетки доски раскрашены style'ом; жёлтый — единственный эмодзи-фолбэк."""
+    """Клетки доски — НАТИВНЫЕ цветные кнопки (style), БЕЗ эмодзи в тексте.
+
+    В Bot API ровно 3 цвета: success/primary/danger. Маппинг:
+    на месте→success(зел), есть но не там→primary(син), нет→danger(кр).
+    """
     from bot.handlers.wordle import _cell, board_kb
     g = _cell("П", "green")
-    assert g.text == "П" and g.style == "success"      # зелёная кнопка, без эмодзи
-    grey = _cell("Ы", "grey")
-    assert grey.text == "Ы" and getattr(grey, "style", None) is None  # серая, без эмодзи
+    assert g.text == "П" and g.style == "success"
     y = _cell("В", "yellow")
-    assert y.text == "В🟨" and getattr(y, "style", None) is None       # только жёлтый — эмодзи
-    # «Сдаться» без декоративного флага, красная
+    assert y.text == "В" and y.style == "primary"   # синяя вместо жёлтого эмодзи
+    r = _cell("Ы", "grey")
+    assert r.text == "Ы" and r.style == "danger"    # красная вместо серой/эмодзи
+    # Ни одна клетка не содержит эмодзи-квадрат, у всех есть валидный style
     game = {"state": {"guesses": [{"word": "ПРИВЕ", "marks":
             ["green", "grey", "yellow", "grey", "green"]}]},
             "status": "active", "game_id": "g1"}
     kb = board_kb(game)
+    guess_row = kb.inline_keyboard[0]
+    for btn in guess_row:
+        assert _no_color_emoji(btn.text), btn.text
+        assert btn.style in ("success", "primary", "danger"), btn.style
     surrender = kb.inline_keyboard[-1][0]
     assert surrender.text == "Сдаться" and surrender.style == "danger"
+
+
+def test_no_color_emoji_in_keyboards():
+    """Ни в одной инлайн-клавиатуре нет эмодзи, имитирующих цвет кнопки."""
+    from bot.utils import keyboards as K
+    kbs = [
+        K.bw_kb("g", [0]*10 + [1]*8 + [2]*7),
+        K.ttt_kb("g", ["X", "O", "", "X", "", "O", "", "", "X"]),
+        K.game_invite_kb("g"), K.dice_kb("g"), K.flip_kb("g"),
+        K.duel_kb("g"), K.connection_kb(), K.broadcast_confirm_kb(),
+    ]
+    for markup in kbs:
+        for row in markup.inline_keyboard:
+            for btn in row:
+                assert _no_color_emoji(btn.text), btn.text
+    # .bw: закрашенные клетки несут нативный style, пустые — нейтральные
+    bw = K.bw_kb("g", [1, 2, 0] + [0]*22)
+    flat = [b for row in bw.inline_keyboard for b in row]
+    assert flat[0].style == "primary" and flat[1].style == "danger"
+    assert getattr(flat[2], "style", None) is None
+    # .ttt: X красная, O синяя
+    ttt = K.ttt_kb("g", ["X", "O", ""] + [""]*6)
+    tf = [b for row in ttt.inline_keyboard for b in row]
+    assert tf[0].style == "danger" and tf[1].style == "primary"
+    assert getattr(tf[2], "style", None) is None
 
 
 async def _resolve_owner_flow():

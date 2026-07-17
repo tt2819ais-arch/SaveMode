@@ -126,11 +126,15 @@ def game_invite_kb(game_id: str) -> InlineKeyboardMarkup:
 
 
 def ttt_kb(game_id: str, board: list) -> InlineKeyboardMarkup:
+    # X = красная (danger), O = синяя (primary), пустая = нейтральная.
     kb = InlineKeyboardBuilder()
-    symbols = {"": "·", "X": "❌", "O": "⭕"}
+    symbols = {"": "·", "X": "X", "O": "O"}
+    styles = {"X": DANGER, "O": PRIMARY}
     for i in range(9):
-        kb.button(text=symbols.get(board[i], "·"),
-                  callback_data=f"ttt:{game_id}:{i}")
+        v = board[i]
+        kb.button(text=symbols.get(v, "·"),
+                  callback_data=f"ttt:{game_id}:{i}",
+                  style=styles.get(v))
     kb.adjust(3)
     return kb.as_markup()
 
@@ -160,11 +164,15 @@ def flip_kb(game_id: str) -> InlineKeyboardMarkup:
 
 
 def bw_kb(game_id: str, board: list) -> InlineKeyboardMarkup:
+    # Клетки красим НАТИВНЫМ style, без эмодзи:
+    #   0 = не закрашено → нейтральная (без style)
+    #   1 = игрок 1      → синяя (primary)
+    #   2 = игрок 2      → красная (danger)
     kb = InlineKeyboardBuilder()
-    symbols = {0: "⬜", 1: "🟦", 2: "🟥"}
+    styles = {1: PRIMARY, 2: DANGER}
     for i in range(25):
-        kb.button(text=symbols.get(board[i], "⬜"),
-                  callback_data=f"bw:{game_id}:{i}")
+        kb.button(text="·", callback_data=f"bw:{game_id}:{i}",
+                  style=styles.get(board[i]))
     kb.adjust(5)
     return kb.as_markup()
 
