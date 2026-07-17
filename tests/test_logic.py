@@ -77,9 +77,34 @@ def test_duel():
 
 
 def test_stakes_and_effects():
+    # STAKES остаётся ВНУТРЕННИМ счётом (для статистики), но НЕ показывается.
     assert set(STAKES) == {"ttt", "duel", "dice", "flip", "bw"}
     assert set(EFFECTS) == set(EFFECT_NAMES)
     assert "chipmunk" in EFFECTS and "robot" in EFFECTS
+
+
+def test_no_stars_in_game_texts():
+    """Ни в одном игровом user-facing тексте нет ⭐ / «звёзд» / «ставка».
+
+    Анти-скам-детект (antiscam.py) и реальные цены подарков Telegram
+    (.gifts в commands.py) сюда НЕ входят — там звёзды по делу.
+    """
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    game_sources = [
+        "bot/handlers/games.py",
+        "bot/handlers/callbacks.py",
+        "bot/handlers/wordle.py",
+    ]
+    for rel in game_sources:
+        src = open(_os.path.join(root, rel), encoding="utf-8").read()
+        assert "⭐" not in src, rel
+        assert "Ставка" not in src and "ставка" not in src, rel
+    # В help-описаниях игр тоже не должно быть звёзд/ставок
+    consts = open(_os.path.join(root, "bot/utils/constants.py"),
+                  encoding="utf-8").read()
+    assert "⭐" not in consts
+    assert "Ставка" not in consts
 
 
 def test_commands_registry():
@@ -146,6 +171,28 @@ def test_flat_menu_structure():
     kb_owner = keyboards.main_menu_kb(is_owner=True)
     assert any((b.callback_data == "admin_menu")
                for row in kb_owner.inline_keyboard for b in row)
+
+
+def test_menu_buttons_show_command_literal():
+    """Кнопки меню подписаны САМОЙ командой (.help), а не словом «Хэлп»."""
+    from bot.utils import keyboards
+    from bot.utils.constants import button_label
+    # button_label возвращает ровно имя команды с точкой
+    assert button_label(".help") == ".help"
+    assert button_label(".kawaii") == ".kawaii"
+    assert button_label(".time") == ".time"
+    # На гриде каждая cmd-кнопка подписана своей командой из COMMANDS
+    kb = keyboards.main_menu_kb(is_owner=False)
+    idx_to_name = {get_command_index(n): n for n, *_ in COMMANDS}
+    seen = 0
+    for row in kb.inline_keyboard:
+        for b in row:
+            if b.callback_data and b.callback_data.startswith("cmd:"):
+                idx = int(b.callback_data.split(":")[1])
+                assert b.text == idx_to_name[idx], (b.text, idx_to_name[idx])
+                assert b.text.startswith("."), b.text  # это команда, не слово
+                seen += 1
+    assert seen == len(COMMANDS)
 
 
 def test_wordle_scoring():

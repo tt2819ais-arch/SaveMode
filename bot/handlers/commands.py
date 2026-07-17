@@ -342,7 +342,7 @@ async def cmd_info(bot, msg, bc_id, owner_id, arg, partner):
         info += f"🔗 Username: @{escape(target.username)}\n"
     info += (
         f"🆔 ID: <code>{target.id}</code>\n"
-        f"⭐ Premium: {premium}\n"
+        f"💎 Premium: {premium}\n"
         f"🌐 Язык: {escape(getattr(target, 'language_code', '') or 'неизвестно')}\n\n"
         "<i>Показаны только публичные данные из Telegram API.</i>"
     )
@@ -584,7 +584,7 @@ async def cmd_yars(bot, msg, bc_id, owner_id, arg, partner):
 
 _GOSU_SURPRISES = [
     "🎉 Сюрприз! Ты сегодня великолепен!",
-    "🌟 Держи звезду за отличный день!",
+    "✨ Держи щепотку блеска за отличный день!",
     "🎁 Виртуальный подарок специально для тебя!",
     "🦄 Единорог передаёт тебе привет!",
     "🍀 Немного удачи тебе сегодня!",

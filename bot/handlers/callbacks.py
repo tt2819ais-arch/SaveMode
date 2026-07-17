@@ -419,7 +419,7 @@ async def cb_ttt(cb: CallbackQuery):
         await storage.update_score(wid, g["chat_id"], games.STAKES["ttt"])
         try:
             await cb.message.edit_text(
-                f"🏆 <b>Победил {escape(wname)}!</b> (+{games.STAKES['ttt']} ⭐)\n\n"
+                f"🏆 <b>Победил {escape(wname)}!</b>\n\n"
                 f"Поле:\n{_ttt_ascii(board)}", parse_mode="HTML")
         except Exception:
             pass
@@ -505,7 +505,7 @@ async def cb_bw(cb: CallbackQuery):
         await storage.update_game(game_id, state=state, status="finished")
         if wid:
             await storage.update_score(wid, g["chat_id"], games.STAKES["bw"])
-            res = f"🏆 Победил {escape(wname)}! (+{games.STAKES['bw']} ⭐)"
+            res = f"🏆 Победил {escape(wname)}!"
         else:
             res = "🤝 Ничья!"
         try:
@@ -585,7 +585,6 @@ async def cb_duel(cb: CallbackQuery):
             await storage.update_game(game_id, state=state, status="finished")
             if wid:
                 await storage.update_score(wid, g["chat_id"], games.STAKES["duel"])
-                res += f" (+{games.STAKES['duel']} ⭐)"
             try:
                 await cb.message.edit_text(
                     f"⚔️ <b>Дуэль окончена</b>\n\n{escape(desc)}\n\n{res}",
@@ -652,7 +651,7 @@ async def cb_dice(cb: CallbackQuery):
         await storage.update_game(game_id, state=state, status="finished")
         if wid:
             await storage.update_score(wid, g["chat_id"], games.STAKES["dice"])
-            res = f"🏆 Победил {escape(wname)}! (+{games.STAKES['dice']} ⭐)"
+            res = f"🏆 Победил {escape(wname)}!"
         else:
             res = "🤝 Ничья!"
         try:
@@ -700,7 +699,7 @@ async def cb_flip(cb: CallbackQuery):
         await cb.message.edit_text(
             f"🪙 <b>Результат</b>\n\n"
             f"Выпало: {names[result]}\n\n"
-            f"🏆 Победил {escape(wname)}! (+{games.STAKES['flip']} ⭐)",
+            f"🏆 Победил {escape(wname)}!",
             parse_mode="HTML")
     except Exception:
         pass

@@ -2,7 +2,8 @@
 
 Игры двухпользовательские: один запускает через .команду,
 второй жмёт «Принять». Ходы по очереди через inline-кнопки.
-Ставки — игровые очки (⭐), НЕ реальные Telegram Stars.
+За победы ведётся внутренний счёт (для статистики), он НЕ показывается
+пользователю и не имеет отношения к Telegram Stars.
 """
 import uuid
 import random
@@ -14,7 +15,8 @@ from bot import storage
 from bot.utils import keyboards
 from bot.utils.text_tools import escape
 
-# Ставки на игры (игровые очки)
+# Внутренний счёт за победу (для статистики; пользователю НЕ показывается,
+# к Telegram Stars отношения не имеет).
 STAKES = {"ttt": 10, "duel": 15, "dice": 5, "flip": 5, "bw": 10}
 
 GAME_TITLES = {
@@ -50,13 +52,11 @@ async def start_game(bot: Bot, msg: Message, game_type: str,
     """Запустить игру — отправить приглашение."""
     game_id = _new_game_id()
     state = _initial_state(game_type)
-    stake = STAKES.get(game_type, 5)
     title = GAME_TITLES.get(game_type, "Игра")
 
     text = (
         f"{title}\n\n"
-        f"👤 Игрок: {escape(player_name)}\n"
-        f"⭐ Ставка: {stake} очков (игровые)\n\n"
+        f"👤 Игрок: {escape(player_name)}\n\n"
         f"Второй игрок — нажмите «Принять игру»!"
     )
     sent = await bot.send_message(

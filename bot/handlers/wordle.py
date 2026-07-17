@@ -310,7 +310,7 @@ async def handle_guess(bot: Bot, msg: Message, bc_id, guesser_id: int,
     extra = ""
     if won:
         extra = (f"🏆 <b>Победа!</b> {escape(guesser_name)} угадал слово "
-                 f"<b>{escape(st['secret'])}</b> за {used} попыт. (+15 ⭐)")
+                 f"<b>{escape(st['secret'])}</b> за {used} попыт.")
         await storage.update_score(guesser_id, chat_id, 15)
         _active_chats.pop(chat_id, None)
     elif lost:
