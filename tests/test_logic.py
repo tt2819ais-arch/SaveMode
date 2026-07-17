@@ -191,6 +191,56 @@ def test_wordle_scoring():
     assert normalize_word("ёжикЁ") == "ЕЖИКЕ"
 
 
+def test_wordle_cell_colors():
+    """Клетки доски раскрашены style'ом; жёлтый — единственный эмодзи-фолбэк."""
+    from bot.handlers.wordle import _cell, board_kb
+    g = _cell("П", "green")
+    assert g.text == "П" and g.style == "success"      # зелёная кнопка, без эмодзи
+    grey = _cell("Ы", "grey")
+    assert grey.text == "Ы" and getattr(grey, "style", None) is None  # серая, без эмодзи
+    y = _cell("В", "yellow")
+    assert y.text == "В🟨" and getattr(y, "style", None) is None       # только жёлтый — эмодзи
+    # «Сдаться» без декоративного флага, красная
+    game = {"state": {"guesses": [{"word": "ПРИВЕ", "marks":
+            ["green", "grey", "yellow", "grey", "green"]}]},
+            "status": "active", "game_id": "g1"}
+    kb = board_kb(game)
+    surrender = kb.inline_keyboard[-1][0]
+    assert surrender.text == "Сдаться" and surrender.style == "danger"
+
+
+async def _resolve_owner_flow():
+    """Регресс на 'после редеплоя .команды/уведомления молчат'.
+
+    Запись подключения стирается на эфемерном хосте → get_connection=None.
+    _resolve_owner должен вернуть OWNER_ID (фолбэк), а не None.
+    """
+    test_db = "/tmp/savemod_test.db"
+    if os.path.exists(test_db):
+        os.remove(test_db)
+    from bot import storage
+    from bot.handlers.business import _resolve_owner
+    from bot.config import OWNER_ID
+    await storage.init_db()
+
+    class _FakeBot:
+        async def get_business_connection(self, bc_id):
+            raise RuntimeError("no network in test")
+
+    bot = _FakeBot()
+    # запись отсутствует → фолбэк на OWNER_ID (не None!)
+    owner = await _resolve_owner("bc_missing", bot)
+    assert owner == OWNER_ID and owner, owner
+    # запись есть → берём из неё
+    await storage.save_connection("bc_ok", 999, "N", "n", True, 1)
+    assert await _resolve_owner("bc_ok", bot) == 999
+    os.remove(test_db)
+
+
+def test_resolve_owner_fallback():
+    asyncio.run(_resolve_owner_flow())
+
+
 def test_edit_diff():
     """Регресс на 'изменённое сообщение не сохраняет'."""
     from bot.handlers.business import edit_diff

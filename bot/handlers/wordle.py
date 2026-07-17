@@ -14,11 +14,13 @@
   🟩 буква на своём месте · 🟨 буква есть, но не там · ⬜ буквы нет в слове.
 
 Про цвет кнопок: Telegram Bot API поддерживает поле InlineKeyboardButton.style
-(success=зелёная, primary=синяя, danger=красная) — мы используем его в меню
-и игровых кнопках. НО жёлтого стиля в API нет, а Wordle требует ЖЁЛТЫЙ
-(буква есть, но не на месте). Поэтому доску мы по-прежнему рендерим цветными
-квадратами-эмодзи (🟩🟨⬜) в тексте кнопок «БУКВА+квадрат» (например «П🟩»),
-а style применяем к служебной кнопке «Сдаться».
+(success=зелёная, primary=синяя, danger=красная). Клетки доски раскрашиваем
+САМИ КНОПКИ, а не эмодзи-квадраты в тексте:
+  • буква на своём месте → style=success (зелёная кнопка), текст = буква;
+  • буквы нет в слове    → без style (серая кнопка), текст = буква;
+  • буква есть, но не там → жёлтого style в API НЕТ, поэтому это ЕДИНСТВЕННЫЙ
+    оставшийся эмодзи-фолбэк: 🟨 рядом с буквой.
+Служебная кнопка «Сдаться» — style=danger (красная).
 """
 import logging
 import uuid
@@ -116,26 +118,37 @@ def is_guess_context(msg: Message) -> bool:
 
 # ─────────────────────────── РЕНДЕР ДОСКИ ───────────────────────────
 
+def _cell(ch: str, mark: str) -> InlineKeyboardButton:
+    """Клетка доски. Цвет несёт САМА кнопка через style:
+      green → style=success (зелёная), текст = буква;
+      grey  → без style (серая по умолчанию), текст = буква;
+      yellow → жёлтого style в API НЕТ, поэтому единственный эмодзи-фолбэк 🟨.
+    """
+    if mark == "green":
+        return InlineKeyboardButton(text=ch, callback_data="noop",
+                                    style="success")
+    if mark == "yellow":
+        return InlineKeyboardButton(text=f"{ch}🟨", callback_data="noop")
+    return InlineKeyboardButton(text=ch, callback_data="noop")
+
+
 def board_kb(game: dict) -> InlineKeyboardMarkup:
-    """Доска как ряды инлайн-кнопок: каждая клетка = «БУКВА+квадрат»."""
+    """Доска как ряды инлайн-кнопок; цвет клетки = цвет кнопки (style)."""
     st = game["state"]
     guesses = st.get("guesses", [])   # список {"word":..., "marks":[...]}
     rows: list[list[InlineKeyboardButton]] = []
     for g in guesses:
-        row = []
-        for ch, mark in zip(g["word"], g["marks"]):
-            row.append(InlineKeyboardButton(
-                text=f"{ch}{SQUARE[mark]}", callback_data="noop"))
-        rows.append(row)
+        rows.append([_cell(ch, mark)
+                     for ch, mark in zip(g["word"], g["marks"])])
     # Пустые оставшиеся ряды.
     used = len(guesses)
     finished = game["status"] == "finished"
     if not finished:
         for _ in range(MAX_ATTEMPTS - used):
-            rows.append([InlineKeyboardButton(text="⬛", callback_data="noop")
+            rows.append([InlineKeyboardButton(text="·", callback_data="noop")
                          for _ in range(WORD_LEN)])
         rows.append([InlineKeyboardButton(
-            text="🏳 Сдаться", callback_data=f"wordle_giveup:{game['game_id']}",
+            text="Сдаться", callback_data=f"wordle_giveup:{game['game_id']}",
             style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

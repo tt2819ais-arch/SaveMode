@@ -10,7 +10,7 @@ from aiogram.types import (
 )
 
 from bot import storage
-from bot.config import DB_PATH
+from bot.config import DB_PATH, OWNER_ID
 from bot.utils import keyboards
 from bot.utils.constants import CONNECTION_TEXT
 from bot.utils.text_tools import escape, format_user, blockquote
@@ -19,6 +19,37 @@ from bot.handlers import commands as cmd_handlers
 
 logger = logging.getLogger(__name__)
 router = Router(name="business")
+
+
+async def _resolve_owner(bc_id: str, bot: Bot) -> int:
+    """Определить владельца бизнес-подключения, с фолбэком на OWNER_ID.
+
+    ВАЖНО: Telegram шлёт business_connection ТОЛЬКО один раз (при подключении)
+    и НЕ повторяет его при рестарте бота. На эфемерных хостах SQLite-база
+    стирается при каждом редеплое → запись подключения теряется → без фолбэка
+    owner_id=None и .команды/уведомления об удалении/правках молча не работают.
+    Т.к. это персональный бот одного владельца — OWNER_ID авторитетен.
+    Дополнительно самовосстанавливаем запись подключения из Telegram.
+    """
+    conn = await storage.get_connection(bc_id)
+    if conn:
+        return conn["user_id"]
+    # Запись потеряна (редеплой) — восстанавливаем из Telegram и падаем на OWNER_ID
+    try:
+        bc = await bot.get_business_connection(bc_id)
+        user = bc.user
+        await storage.save_connection(
+            conn_id=bc_id, user_id=user.id,
+            first_name=user.first_name or "", username=user.username or "",
+            is_enabled=getattr(bc, "is_enabled", True), date=int(time.time()),
+        )
+        logger.info("Запись подключения %s самовосстановлена (user=%s)",
+                    bc_id, user.id)
+        return user.id
+    except Exception as e:
+        logger.warning("Не удалось восстановить подключение %s: %s "
+                       "(фолбэк на OWNER_ID)", bc_id, e)
+        return OWNER_ID
 
 
 async def _maybe_autodelete(bot: Bot, msg: Message, bc_id: str,
@@ -163,8 +194,7 @@ async def on_business_message(msg: Message, bot: Bot):
     bc_id = msg.business_connection_id
     logger.info("📥 business_message получен: chat=%s msg_id=%s bc=%s",
                 msg.chat.id, msg.message_id, bc_id)
-    conn = await storage.get_connection(bc_id)
-    owner_id = conn["user_id"] if conn else None
+    owner_id = await _resolve_owner(bc_id, bot)
 
     ctype, text_or_desc, file_id = _content_info(msg)
     frm = msg.from_user
@@ -251,8 +281,7 @@ async def on_edited_business_message(msg: Message, bot: Bot):
     bc_id = msg.business_connection_id
     logger.info("✏️ edited_business_message: chat=%s msg_id=%s bc=%s",
                 msg.chat.id, msg.message_id, bc_id)
-    conn = await storage.get_connection(bc_id)
-    owner_id = conn["user_id"] if conn else None
+    owner_id = await _resolve_owner(bc_id, bot)
     if not owner_id:
         return
 
@@ -306,8 +335,7 @@ async def on_deleted_business_messages(event: BusinessMessagesDeleted, bot: Bot)
     bc_id = event.business_connection_id
     logger.info("🗑 deleted_business_messages: chat=%s ids=%s bc=%s",
                 event.chat.id, list(event.message_ids), bc_id)
-    conn = await storage.get_connection(bc_id)
-    owner_id = conn["user_id"] if conn else None
+    owner_id = await _resolve_owner(bc_id, bot)
     if not owner_id:
         return
 
