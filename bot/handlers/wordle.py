@@ -26,6 +26,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot import storage
 from bot.utils.text_tools import escape
+from bot.utils.premium_emoji import pe_random
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,8 @@ async def handle_guess(bot: Bot, msg: Message, bc_id, guesser_id: int,
     extra = ""
     if won:
         extra = (f"🏆 <b>Победа!</b> {escape(guesser_name)} угадал слово "
-                 f"<b>{escape(st['secret'])}</b> за {used} попыт.")
+                 f"<b>{escape(st['secret'])}</b> за {used} попыт. "
+                 f"{pe_random('celebrate')}")
         await storage.update_score(guesser_id, chat_id, 15)
         _active_chats.pop(chat_id, None)
     elif lost:

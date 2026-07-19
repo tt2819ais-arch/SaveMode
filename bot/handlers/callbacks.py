@@ -9,9 +9,10 @@ from bot import storage
 from bot.config import OWNER_ID
 from bot.utils import keyboards
 from bot.utils.constants import (
-    COMMANDS, CONNECTION_TEXT, menu_text, strip_lead_emoji,
+    COMMANDS, connection_text, menu_text, strip_lead_emoji,
 )
 from bot.utils.text_tools import escape
+from bot.utils.premium_emoji import pe_random
 from bot.handlers import games
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ async def cb_menu(cb: CallbackQuery):
 async def cb_welcome(cb: CallbackQuery):
     try:
         await cb.message.edit_text(
-            CONNECTION_TEXT, reply_markup=keyboards.connection_kb(),
+            connection_text(), reply_markup=keyboards.connection_kb(),
             parse_mode="HTML")
     except Exception:
         pass
@@ -419,7 +420,7 @@ async def cb_ttt(cb: CallbackQuery):
         await storage.update_score(wid, g["chat_id"], games.STAKES["ttt"])
         try:
             await cb.message.edit_text(
-                f"🏆 <b>Победил {escape(wname)}!</b>\n\n"
+                f"🏆 <b>Победил {escape(wname)}!</b> {pe_random('celebrate')}\n\n"
                 f"Поле:\n{_ttt_ascii(board)}", parse_mode="HTML")
         except Exception:
             pass
@@ -505,7 +506,7 @@ async def cb_bw(cb: CallbackQuery):
         await storage.update_game(game_id, state=state, status="finished")
         if wid:
             await storage.update_score(wid, g["chat_id"], games.STAKES["bw"])
-            res = f"🏆 Победил {escape(wname)}!"
+            res = f"🏆 Победил {escape(wname)}! {pe_random('celebrate')}"
         else:
             res = "🤝 Ничья!"
         try:
@@ -577,10 +578,10 @@ async def cb_duel(cb: CallbackQuery):
                 res = "🤝 Оба пали — ничья!"
                 wid = None
             elif state["hp2"] <= 0:
-                res = f"🏆 Победил {escape(g['player1_name'])}!"
+                res = f"🏆 Победил {escape(g['player1_name'])}! {pe_random('celebrate')}"
                 wid = g["player1_id"]
             else:
-                res = f"🏆 Победил {escape(g['player2_name'])}!"
+                res = f"🏆 Победил {escape(g['player2_name'])}! {pe_random('celebrate')}"
                 wid = g["player2_id"]
             await storage.update_game(game_id, state=state, status="finished")
             if wid:
@@ -651,7 +652,7 @@ async def cb_dice(cb: CallbackQuery):
         await storage.update_game(game_id, state=state, status="finished")
         if wid:
             await storage.update_score(wid, g["chat_id"], games.STAKES["dice"])
-            res = f"🏆 Победил {escape(wname)}!"
+            res = f"🏆 Победил {escape(wname)}! {pe_random('celebrate')}"
         else:
             res = "🤝 Ничья!"
         try:
@@ -699,7 +700,7 @@ async def cb_flip(cb: CallbackQuery):
         await cb.message.edit_text(
             f"🪙 <b>Результат</b>\n\n"
             f"Выпало: {names[result]}\n\n"
-            f"🏆 Победил {escape(wname)}!",
+            f"🏆 Победил {escape(wname)}! {pe_random('celebrate')}",
             parse_mode="HTML")
     except Exception:
         pass

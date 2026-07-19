@@ -58,14 +58,17 @@ _LOVE_EMOJI = ["💕", "💖", "❤️", "💗", "💓", "💞", "💘", "😍",
 
 
 def love(text: str) -> str:
-    """Оформить текст сердечками."""
+    """Оформить текст премиум-сердечками (HTML).
+
+    Каждое слово обрамляется случайным premium-сердечком, поэтому результат
+    отправляется с parse_mode="HTML" (см. cmd_love). Текст экранируется.
+    """
     if not text:
         return text
+    from bot.utils.premium_emoji import pe_random
     words = text.split()
-    hearts = "💕"
-    out = [f"{hearts}{w}{hearts}" for w in words]
-    return f"{random.choice(_LOVE_EMOJI)} " + " ".join(out) + \
-           f" {random.choice(_LOVE_EMOJI)}"
+    out = [f"{pe_random('love')}{escape(w)}{pe_random('love')}" for w in words]
+    return f"{pe_random('love')} " + " ".join(out) + f" {pe_random('love')}"
 
 
 # --- Форматирование имени пользователя ---

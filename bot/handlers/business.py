@@ -12,7 +12,7 @@ from aiogram.types import (
 from bot import storage
 from bot.config import DB_PATH, OWNER_ID
 from bot.utils import keyboards
-from bot.utils.constants import CONNECTION_TEXT
+from bot.utils.constants import connection_text
 from bot.utils.text_tools import escape, format_user, blockquote
 from bot.handlers.antiscam import check_scam
 from bot.handlers import commands as cmd_handlers
@@ -175,7 +175,7 @@ async def on_business_connection(conn: BusinessConnection, bot: Bot):
     try:
         if is_enabled:
             await bot.send_message(
-                chat_id=user.id, text=CONNECTION_TEXT,
+                chat_id=user.id, text=connection_text(),
                 reply_markup=keyboards.connection_kb(),
             )
         else:

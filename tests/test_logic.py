@@ -555,6 +555,44 @@ def test_autodelete_set_logic():
     assert ".nk" not in EDIT_IN_PLACE_COMMANDS
 
 
+def test_premium_emoji_wellformed():
+    """pe/accent/pe_random выдают корректный <tg-emoji> с fallback."""
+    import re
+    from bot.utils import premium_emoji as P
+    P.seed(42)
+    rx = re.compile(r'^<tg-emoji emoji-id="\d+">.+</tg-emoji>$')
+    for key in ["gift", "heart", "star", "check", "🎁", "🌟"]:
+        assert rx.match(P.pe(key)), (key, P.pe(key))
+    assert rx.match(P.accent())
+    for theme in P.THEMES:
+        assert rx.match(P.pe_random(theme)), theme
+    # неизвестный ключ -> сам ключ (plain, ничего не ломается)
+    assert P.pe("no_such_emoji_xyz") == "no_such_emoji_xyz"
+    # каждый глиф в NAMES и THEMES имеет реальный variant-id
+    for name, glyph in P.NAMES.items():
+        assert glyph in P.VARIANTS, (name, glyph)
+    for theme, glyphs in P.THEMES.items():
+        for g in glyphs:
+            assert g in P.VARIANTS, (theme, g)
+            assert g not in P._BLOCKED, (theme, g)
+    # детерминизм по seed
+    P.seed(7); a = [P.pe("gift") for _ in range(5)]
+    P.seed(7); b = [P.pe("gift") for _ in range(5)]
+    assert a == b
+
+
+def test_key_texts_have_premium_emoji():
+    """Ключевые тексты содержат premium-эмодзи, а .love экранирует HTML."""
+    from bot.utils import constants, text_tools, premium_emoji
+    premium_emoji.seed(1)
+    assert "<tg-emoji" in constants.menu_text()
+    assert "<tg-emoji" in constants.connection_text()
+    out = text_tools.love("a <b> & c")
+    assert "<tg-emoji" in out
+    # опасные символы пользователя экранированы (нет сырого <b> от юзера)
+    assert "&lt;b&gt;" in out and "&amp;" in out
+
+
 if __name__ == "__main__":
     passed = 0
     failed = 0

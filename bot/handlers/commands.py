@@ -19,6 +19,7 @@ from bot.utils import keyboards
 from bot.utils.text_tools import (
     escape, switch_layout, kawaii, love, format_user,
 )
+from bot.utils.premium_emoji import pe, pe_random
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ async def cmd_love(bot, msg, bc_id, owner_id, arg, partner):
     if not arg:
         await _edit_own(bot, msg, bc_id, "💕 Укажите текст: .love [текст]")
         return
-    await _edit_own(bot, msg, bc_id, love(arg))
+    await _edit_own(bot, msg, bc_id, love(arg), parse_mode="HTML")
     await _notify_owner_cmd(bot, owner_id, ".love", partner,
                             "Оформление текста сердечками.")
 
@@ -455,7 +456,7 @@ async def cmd_status(bot, msg, bc_id, owner_id, arg, partner):
 
 
 async def cmd_gifts(bot, msg, bc_id, owner_id, arg, partner):
-    text = "🎁 <b>Подарки Telegram</b>\n\n"
+    text = f"{pe('gift')} <b>Подарки Telegram</b>\n\n"
     try:
         gifts = await bot.get_available_gifts()
         items = getattr(gifts, "gifts", [])
@@ -597,7 +598,8 @@ _GOSU_SURPRISES = [
 async def cmd_gosu(bot, msg, bc_id, owner_id, arg, partner):
     import random
     surprise = random.choice(_GOSU_SURPRISES)
-    await _edit_own(bot, msg, bc_id, surprise)
+    await _edit_own(bot, msg, bc_id, f"{surprise} {pe_random('reward')}",
+                    parse_mode="HTML")
 
 
 async def cmd_lq(bot, msg, bc_id, owner_id, arg, partner):
