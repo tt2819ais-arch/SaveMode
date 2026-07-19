@@ -129,15 +129,20 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
         state = arg.strip().lower()
         if state in ("on", "вкл", "1", "да"):
             await storage.set_setting(owner_id, "autodelete", "1")
-            await bot.send_message(owner_id, "✅ Авто-удаление команд включено.")
+            await bot.send_message(
+                owner_id, f"{pe('gear')} Авто-удаление команд включено.",
+                parse_mode="HTML")
         elif state in ("off", "выкл", "0", "нет"):
             await storage.set_setting(owner_id, "autodelete", "0")
-            await bot.send_message(owner_id, "✅ Авто-удаление команд выключено.")
+            await bot.send_message(
+                owner_id, f"{pe('gear')} Авто-удаление команд выключено.",
+                parse_mode="HTML")
         else:
             cur = await storage.get_setting(owner_id, "autodelete", "1")
             await bot.send_message(
                 owner_id,
-                f"Авто-удаление сейчас: <b>{'вкл' if cur == '1' else 'выкл'}</b>.\n"
+                f"{pe('gear')} Авто-удаление сейчас: "
+                f"<b>{'вкл' if cur == '1' else 'выкл'}</b>.\n"
                 "Переключить: <code>.autodel on</code> / <code>.autodel off</code>",
                 parse_mode="HTML")
         return
@@ -335,7 +340,7 @@ async def cmd_info(bot, msg, bc_id, owner_id, arg, partner):
         return
     premium = "✅ Да" if getattr(target, "is_premium", False) else "❌ Нет"
     info = (
-        "ℹ️ <b>Публичная информация</b>\n\n"
+        f"ℹ️ <b>Публичная информация</b> {pe('satellite')}\n\n"
         f"👤 Имя: {escape(target.first_name or '')}"
         f" {escape(target.last_name or '')}\n"
     )
@@ -444,7 +449,7 @@ async def cmd_status(bot, msg, bc_id, owner_id, arg, partner):
     styled = f"『 {arg.strip()} 』"
     ok = await _edit_own(bot, msg, bc_id, styled)
     note = (
-        "ℹ️ <b>Про имя профиля:</b> Bot API Telegram не позволяет менять "
+        f"{pe('writing')} <b>Про имя профиля:</b> Bot API Telegram не позволяет менять "
         "имя/статус аккаунта — это ограничение самого Telegram, а не бота. "
         "Поменять имя можно только вручную: Настройки → Изменить профиль.\n\n"
         f"✅ Оформил текущее сообщение в стиле статуса: {escape(styled)}"
@@ -713,8 +718,10 @@ async def cmd_pass(bot, msg, bc_id, owner_id, arg, partner):
         length = 16
     pwd = tools.gen_password(length)
     # Пароль отправляем ТОЛЬКО в личку владельцу, не в чат.
-    await bot.send_message(owner_id, f"🔐 Пароль ({len(pwd)} симв.):\n<code>{escape(pwd)}</code>",
-                           parse_mode="HTML")
+    await bot.send_message(
+        owner_id,
+        f"{pe('key')} Пароль ({len(pwd)} симв.):\n<code>{escape(pwd)}</code>",
+        parse_mode="HTML")
 
 
 async def cmd_mock(bot, msg, bc_id, owner_id, arg, partner):

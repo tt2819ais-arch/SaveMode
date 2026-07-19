@@ -30,8 +30,10 @@ def test_switch_layout():
 
 def test_kawaii_love():
     assert kawaii("hello world")  # непустой
-    assert love("я тебя люблю")
-    assert "💕" in love("тест")
+    out = love("я тебя люблю")
+    assert out
+    # .love теперь оформляет premium-сердечками (случайные варианты)
+    assert "<tg-emoji" in love("тест")
 
 
 def test_blockquote_escape():
@@ -579,6 +581,14 @@ def test_premium_emoji_wellformed():
     P.seed(7); a = [P.pe("gift") for _ in range(5)]
     P.seed(7); b = [P.pe("gift") for _ in range(5)]
     assert a == b
+    # второй пак (gear/keyboard/dart/…) вмёржен и доступен
+    for glyph in ["⚙️", "⌨️", "🔑", "🎯", "📡", "🗓", "🎶"]:
+        assert glyph in P.VARIANTS, glyph
+    for name in ["gear", "keyboard", "key", "dart", "satellite", "notes"]:
+        assert rx.match(P.pe(name)), name
+    for theme in ["system", "note", "connect"]:
+        assert rx.match(P.pe_random(theme)), theme
+    assert len(P.VARIANTS) >= 80
 
 
 def test_key_texts_have_premium_emoji():
