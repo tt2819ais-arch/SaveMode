@@ -151,6 +151,24 @@ async def get_message(bc_id: str, chat_id: int, message_id: int) -> Optional[dic
     return msgs[0] if msgs else None
 
 
+async def get_recent_from_user(bc_id: str, chat_id: int, from_user_id: int,
+                               limit: int, exclude_id: int = 0) -> list[int]:
+    """ID последних сообщений пользователя в чате (по убыванию даты).
+
+    Используется командой .del — удалять можно только СВОИ сообщения.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("""
+            SELECT message_id FROM messages
+            WHERE business_connection_id = ? AND chat_id = ?
+              AND from_user_id = ? AND message_id != ?
+            ORDER BY date DESC, message_id DESC
+            LIMIT ?
+        """, (bc_id, chat_id, from_user_id, exclude_id, limit))
+        rows = await cur.fetchall()
+        return [r[0] for r in rows]
+
+
 async def save_connection(conn_id: str, user_id: int,
                           first_name: str, username: str,
                           is_enabled: bool, date: int) -> None:

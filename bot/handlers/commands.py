@@ -115,6 +115,7 @@ async def maybe_afk_reply(bot: Bot, msg: Message, bc_id: str, reason: str):
 EDIT_IN_PLACE_COMMANDS = {
     ".love", ".sw", ".type", ".calc", ".mock", ".rev", ".roll",
     ".pick", ".b64", ".spoiler", ".tr", ".status", ".time",
+    ".8ball", ".ping", ".ip", ".id",
 }
 
 # Полный набор РАСПОЗНАВАЕМЫХ команд: всё из меню + служебные (.autodel).
@@ -193,10 +194,20 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
         ".count": cmd_count,
         ".b64": cmd_b64,
         ".spoiler": cmd_spoiler,
+        ".id": cmd_id,
+        ".poll": cmd_poll,
+        ".del": cmd_del,
+        ".quote": cmd_quote,
+        ".8ball": cmd_8ball,
+        ".ping": cmd_ping,
+        ".wiki": cmd_wiki,
+        ".write": cmd_write,
+        ".ip": cmd_ip,
+        ".bold": cmd_bold,
     }
 
     # Игры
-    if cmd in (".ttt", ".duel", ".dice", ".flip", ".bw"):
+    if cmd in (".ttt", ".duel", ".dice", ".flip", ".bw", ".rps"):
         from bot.handlers import games
         gtype = cmd[1:]
         pname = (msg.from_user.first_name if msg.from_user else "Игрок") or "Игрок"
@@ -619,27 +630,49 @@ async def cmd_status(bot, msg, bc_id, owner_id, arg, partner):
     await bot.send_message(owner_id, note, parse_mode="HTML")
 
 
+def _fmt_gift_date(send_date) -> str:
+    """Unix-время подарка -> 'ДД.ММ.ГГГГ ЧЧ:ММ' (МСК). Пусто, если нет даты."""
+    if not send_date:
+        return ""
+    from datetime import timezone, timedelta
+    try:
+        return datetime.fromtimestamp(
+            int(send_date), timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return ""
+
+
 def _render_gift_line(og) -> tuple[str, int]:
     """Одна строка подарка -> (html_line, price_stars).
 
-    Regular-подарок: name = эмодзи-стикер, цена = star_count, без личной ссылки.
-    Unique (NFT)-подарок: name + ссылка t.me/nft/<name>, цена = стоимость передачи.
+    NFT (UniqueGift): человекочитаемое имя (base_name) + №, цена передачи,
+      ссылка t.me/nft/<name>, дата получения.
+    Обычный подарок: эмодзи-стикер (текстового названия у Bot API нет),
+      цена в Stars и дата+время получения (send_date).
     """
     gift = getattr(og, "gift", None)
-    # Unique gift (NFT) — есть поле .name и публичная ссылка t.me/nft/<name>
+    date_txt = _fmt_gift_date(getattr(og, "send_date", None))
+    # Unique gift (NFT) — есть .name (слаг ссылки) и .base_name (имя)
     name = getattr(gift, "name", None)
     if name:
+        base = getattr(gift, "base_name", None) or name
         num = getattr(gift, "number", None)
-        title = escape(name) + (f" #{num}" if num else "")
+        title = escape(str(base)) + (f" #{num}" if num else "")
         price = getattr(og, "transfer_star_count", None) or 0
-        link = f"https://t.me/nft/{escape(name)}"
-        price_txt = f"{price}⭐ (передача)" if price else "— (уникальный)"
-        return f"🎁 <a href=\"{link}\">{title}</a> — {price_txt}", int(price or 0)
-    # Regular gift — именем служит эмодзи стикера; личной ссылки нет
+        link = f"https://t.me/nft/{escape(str(name))}"
+        price_txt = f"{price}⭐" if price else "уникальный"
+        line = f'🎁 <a href="{link}">{title}</a> — {price_txt}'
+        if date_txt:
+            line += f" · {date_txt}"
+        return line, int(price or 0)
+    # Regular gift — именем служит эмодзи стикера; текстового названия нет
     star = getattr(gift, "star_count", 0) or 0
     sticker = getattr(gift, "sticker", None)
     emoji = getattr(sticker, "emoji", None) or "🎁"
-    return f"{emoji} Подарок — {star}⭐", int(star)
+    line = f"{emoji} Подарок — {star}⭐"
+    if date_txt:
+        line += f" · {date_txt}"
+    return line, int(star)
 
 
 async def _resolve_gift_target(bot, msg, arg):
@@ -688,11 +721,28 @@ async def cmd_gifts(bot, msg, bc_id, owner_id, arg, partner):
         return
 
     uid = ident if ident is not None else owner_id
+
+    # Пагинация: тянем ВСЕ подарки через курсор next_offset.
+    # Жёсткий предохранитель на случай профилей с десятками тысяч подарков.
+    SAFETY_CAP = 500
+    all_gifts: list = []
+    total_count = 0
+    offset = ""
     try:
-        if kind == "chat":
-            res = await bot.get_chat_gifts(chat_id=uid, sort_by_price=True, limit=100)
-        else:
-            res = await bot.get_user_gifts(user_id=uid, sort_by_price=True, limit=100)
+        while True:
+            if kind == "chat":
+                res = await bot.get_chat_gifts(
+                    chat_id=uid, offset=offset, limit=100)
+            else:
+                res = await bot.get_user_gifts(
+                    user_id=uid, offset=offset, limit=100)
+            total_count = getattr(res, "total_count", 0) or total_count
+            page = list(getattr(res, "gifts", []) or [])
+            all_gifts += page
+            nxt = getattr(res, "next_offset", None)
+            if not nxt or not page or len(all_gifts) >= SAFETY_CAP:
+                break
+            offset = nxt
     except Exception as e:
         logger.warning("get_*_gifts(%s): %s", uid, e)
         await bot.send_message(
@@ -704,43 +754,48 @@ async def cmd_gifts(bot, msg, bc_id, owner_id, arg, partner):
             parse_mode="HTML")
         return
 
-    total_count = getattr(res, "total_count", 0) or 0
-    gifts = list(getattr(res, "gifts", []) or [])
     header = f"{pe('gift')} <b>Подарки — {escape(str(title))}</b>\n"
-    header += f"📦 Всего подарков: <b>{total_count}</b>\n"
+    header += f"📦 Всего подарков: <b>{total_count}</b>"
 
-    if not gifts:
+    if not all_gifts:
         await bot.send_message(
             owner_id,
-            header + "\nСписок пуст или скрыт настройками приватности.",
+            header + "\n\nСписок пуст или скрыт настройками приватности.",
             parse_mode="HTML")
         return
 
-    MAX_LINES = 30
     lines = []
-    shown_sum = 0
-    for og in gifts[:MAX_LINES]:
+    total_sum = 0
+    for og in all_gifts:
         line, price = _render_gift_line(og)
-        shown_sum += price
+        total_sum += price
         lines.append("• " + line)
 
-    body = "\n".join(lines)
-    footer = f"\n\n💰 Сумма показанных: <b>{shown_sum}⭐</b>"
-    if total_count > len(lines):
-        footer += (f"\n<i>Показаны {len(lines)} из {total_count}. "
-                   "Полную сумму по всем подаркам посчитать нельзя "
-                   "(их слишком много).</i>")
-    else:
-        footer += " (это все подарки)"
-    footer += ("\n\n<i>Цены — реальная стоимость подарков в Telegram Stars "
-               "(это официальная цена самих подарков, не игровая валюта).</i>")
+    footer = f"💰 Сумма: <b>{total_sum}⭐</b>"
+    if len(all_gifts) < total_count:
+        # Сработал предохранитель — честно помечаем (только для гигантских профилей)
+        footer += (f"\n<i>Показаны первые {len(all_gifts)} — "
+                   f"у профиля их очень много.</i>")
 
-    out = premiumize(header + "\n" + body + footer)
-    # Защита от лимита длины сообщения Telegram
-    if len(out) > 4000:
-        out = out[:3900] + "\n… (список обрезан)"
-    await bot.send_message(owner_id, out, parse_mode="HTML",
-                           disable_web_page_preview=True)
+    # premium-эмодзи применяем только к заголовку/итогу; строки подарков
+    # оставляем как есть (эмодзи подарка — это его настоящий вид, не меняем).
+    pieces = [premiumize(header)] + lines + [premiumize(footer)]
+
+    # Режем на сообщения под лимит Telegram (~4096), чтобы ничего не терять.
+    messages: list[str] = []
+    cur = ""
+    for piece in pieces:
+        if cur and len(cur) + 1 + len(piece) > 3500:
+            messages.append(cur)
+            cur = piece
+        else:
+            cur = piece if not cur else cur + "\n" + piece
+    if cur:
+        messages.append(cur)
+
+    for m in messages:
+        await bot.send_message(owner_id, m, parse_mode="HTML",
+                               disable_web_page_preview=True)
 
 
 async def cmd_fv(bot, msg, bc_id, owner_id, arg, partner):
@@ -1046,3 +1101,203 @@ async def cmd_spoiler(bot, msg, bc_id, owner_id, arg, partner):
         return
     await _edit_own(bot, msg, bc_id,
                     f"<tg-spoiler>{escape(text)}</tg-spoiler>", parse_mode="HTML")
+
+
+# ══════════ НОВЫЕ КОМАНДЫ ══════════
+
+async def cmd_id(bot, msg, bc_id, owner_id, arg, partner):
+    """ID чата/пользователя. В ответ на сообщение — ID его автора."""
+    lines = [f"🆔 <b>ID</b>", f"Чат: <code>{msg.chat.id}</code>"]
+    if msg.chat.title:
+        lines.append(f"Название: {escape(msg.chat.title)}")
+    if msg.chat.username:
+        lines.append(f"Username: @{escape(msg.chat.username)}")
+    if msg.from_user:
+        lines.append(f"Вы: <code>{msg.from_user.id}</code>")
+    r = getattr(msg, "reply_to_message", None)
+    if r and r.from_user:
+        u = r.from_user
+        uname = f" (@{escape(u.username)})" if u.username else ""
+        lines.append(f"Автор сообщения: <code>{u.id}</code>"
+                     f" {escape(u.first_name or '')}{uname}")
+    await _edit_own(bot, msg, bc_id, "\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_poll(bot, msg, bc_id, owner_id, arg, partner):
+    """Создать нативный опрос в чате."""
+    from bot.utils import tools
+    parsed = tools.parse_poll(_reply_or_arg(msg, arg))
+    if not parsed:
+        await bot.send_message(
+            owner_id,
+            "📊 Использование: <code>.poll вопрос / вариант1 / вариант2</code>\n"
+            "(от 2 до 10 вариантов, разделитель «/»)",
+            parse_mode="HTML")
+        return
+    question, options = parsed
+    try:
+        await bot.send_poll(
+            chat_id=msg.chat.id, question=question, options=options,
+            is_anonymous=True, business_connection_id=bc_id or None)
+    except Exception as e:
+        logger.warning("send_poll: %s", e)
+        await bot.send_message(owner_id, f"📊 Не удалось создать опрос: {escape(str(e))}")
+
+
+async def cmd_del(bot, msg, bc_id, owner_id, arg, partner):
+    """Удалить последние N СОБСТВЕННЫХ сообщений владельца в этом чате."""
+    from bot.utils import tools
+    n = tools.parse_del_count(arg)
+    if not bc_id:
+        await bot.send_message(
+            owner_id, "🧹 .del работает в бизнес-чате (нужен Business Mode).")
+        return
+    ids = await storage.get_recent_from_user(
+        bc_id, msg.chat.id, owner_id, n, exclude_id=msg.message_id)
+    if not ids:
+        await bot.send_message(
+            owner_id, "🧹 Не нашёл ваших недавних сообщений для удаления "
+            "(бот видит только сообщения, полученные после подключения).")
+        return
+    try:
+        await bot.delete_business_messages(
+            business_connection_id=bc_id, message_ids=ids)
+    except Exception as e:
+        logger.warning("del business msgs: %s", e)
+        await bot.send_message(owner_id, f"🧹 Не удалось удалить: {escape(str(e))}")
+
+
+async def cmd_quote(bot, msg, bc_id, owner_id, arg, partner):
+    """Оформить сообщение (из reply или аргумента) картинкой-цитатой."""
+    from bot.utils import tools
+    r = getattr(msg, "reply_to_message", None)
+    if r and (r.text or r.caption):
+        text = r.text or r.caption
+        au = r.from_user
+        author = ((au.first_name or "") + (f" @{au.username}" if au and au.username else "")).strip() if au else ""
+    elif arg.strip():
+        text = arg.strip()
+        author = ""
+    else:
+        await bot.send_message(
+            owner_id, "🖼 Ответьте командой <code>.quote</code> на текстовое "
+            "сообщение (или напишите <code>.quote текст</code>).",
+            parse_mode="HTML")
+        return
+    try:
+        png = tools.quote_png(text, author)
+    except Exception as e:
+        logger.warning("quote_png: %s", e)
+        await bot.send_message(owner_id, f"🖼 Не удалось нарисовать цитату: {escape(str(e))}")
+        return
+    from aiogram.types import BufferedInputFile
+    photo = BufferedInputFile(png, filename="quote.png")
+    try:
+        await bot.send_photo(chat_id=msg.chat.id, photo=photo,
+                             business_connection_id=bc_id or None)
+    except Exception:
+        await bot.send_photo(chat_id=owner_id, photo=photo)
+
+
+async def cmd_8ball(bot, msg, bc_id, owner_id, arg, partner):
+    """Магический шар — случайный ответ."""
+    from bot.utils import tools
+    q = _reply_or_arg(msg, arg).strip()
+    ans = tools.magic8(q)
+    out = "🎱 " + (f"<i>{escape(q)}</i>\n" if q else "") + f"<b>{ans}</b>"
+    await _edit_own(bot, msg, bc_id, out, parse_mode="HTML")
+
+
+async def cmd_ping(bot, msg, bc_id, owner_id, arg, partner):
+    """Проверка связи: round-trip до Telegram API."""
+    t0 = time.monotonic()
+    try:
+        await bot.get_me()
+    except Exception:
+        pass
+    ms = int((time.monotonic() - t0) * 1000)
+    await _edit_own(bot, msg, bc_id, f"🏓 Понг! <b>{ms}</b> мс", parse_mode="HTML")
+
+
+async def cmd_wiki(bot, msg, bc_id, owner_id, arg, partner):
+    """Краткая выжимка из Википедии."""
+    from bot.utils import tools
+    q = _reply_or_arg(msg, arg).strip()
+    if not q:
+        await bot.send_message(owner_id, "📚 Использование: <code>.wiki запрос</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        out = await tools.wiki_summary(q)
+    except Exception as e:
+        logger.warning("wiki: %s", e)
+        await bot.send_message(owner_id, "📚 Не удалось получить статью (сервис недоступен).")
+        return
+    dest = msg.chat.id
+    try:
+        await bot.send_message(dest, out, parse_mode="HTML",
+                               business_connection_id=bc_id or None,
+                               disable_web_page_preview=False)
+    except Exception:
+        await bot.send_message(owner_id, out, parse_mode="HTML")
+
+
+async def cmd_write(bot, msg, bc_id, owner_id, arg, partner):
+    """Текст «от руки» картинкой."""
+    from bot.utils import tools
+    text = _reply_or_arg(msg, arg).strip()
+    if not text:
+        await bot.send_message(owner_id, "✍️ Использование: <code>.write текст</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        png = tools.handwrite_png(text)
+    except Exception as e:
+        logger.warning("handwrite: %s", e)
+        await bot.send_message(owner_id, f"✍️ Не удалось нарисовать: {escape(str(e))}")
+        return
+    from aiogram.types import BufferedInputFile
+    photo = BufferedInputFile(png, filename="write.png")
+    try:
+        await bot.send_photo(chat_id=msg.chat.id, photo=photo,
+                             business_connection_id=bc_id or None)
+    except Exception:
+        await bot.send_photo(chat_id=owner_id, photo=photo)
+
+
+async def cmd_ip(bot, msg, bc_id, owner_id, arg, partner):
+    """Публичная гео-инфа об IP/домене."""
+    from bot.utils import tools
+    addr = _reply_or_arg(msg, arg).strip()
+    if not addr:
+        await bot.send_message(owner_id, "🌐 Использование: <code>.ip 8.8.8.8</code>",
+                               parse_mode="HTML")
+        return
+    try:
+        out = await tools.ip_info(addr)
+    except Exception as e:
+        logger.warning("ip_info: %s", e)
+        await bot.send_message(owner_id, "🌐 Не удалось получить данные (сервис недоступен).")
+        return
+    await _edit_own(bot, msg, bc_id, out, parse_mode="HTML")
+
+
+async def cmd_bold(bot, msg, bc_id, owner_id, arg, partner):
+    """Переключатель авто-жирного текста для текущего чата (как .kawaii)."""
+    state = arg.strip().lower()
+    key = f"bold:{msg.chat.id}"
+    if state in ("off", "выкл", "0", "нет"):
+        await storage.set_setting(owner_id, key, "0")
+        await bot.send_message(owner_id, "🅱️ Авто-жирный <b>выключен</b> для этого чата.",
+                               parse_mode="HTML")
+        return
+    if state in ("on", "вкл", "1", "да", ""):
+        await storage.set_setting(owner_id, key, "1")
+        await bot.send_message(owner_id, "🅱️ Авто-жирный <b>включён</b> для этого чата.\n"
+                               "Каждое ваше сообщение здесь станет жирным. Выкл: <code>.bold off</code>.",
+                               parse_mode="HTML")
+        return
+    cur = await storage.get_setting(owner_id, key, "0")
+    await bot.send_message(owner_id, f"🅱️ Авто-жирный сейчас: "
+                           f"<b>{'вкл' if cur == '1' else 'выкл'}</b>.",
+                           parse_mode="HTML")

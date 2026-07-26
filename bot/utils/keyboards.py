@@ -163,6 +163,15 @@ def flip_kb(game_id: str) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def rps_kb(game_id: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✊ Камень", callback_data=f"rps:{game_id}:rock")
+    kb.button(text="✋ Бумага", callback_data=f"rps:{game_id}:paper")
+    kb.button(text="✌️ Ножницы", callback_data=f"rps:{game_id}:scissors")
+    kb.adjust(3)
+    return kb.as_markup()
+
+
 def bw_kb(game_id: str, board: list) -> InlineKeyboardMarkup:
     # Клетки красим НАТИВНЫМ style, без эмодзи:
     #   0 = не закрашено → нейтральная (без style)

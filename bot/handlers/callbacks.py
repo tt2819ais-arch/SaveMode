@@ -371,6 +371,8 @@ async def _render_game(cb, bot, g, first=False):
         await _render_dice_start(cb, g)
     elif gt == "flip":
         await _render_flip_start(cb, g)
+    elif gt == "rps":
+        await _render_rps_start(cb, g)
 
 
 # ── Крестики-нолики ──
@@ -705,3 +707,69 @@ async def cb_flip(cb: CallbackQuery):
     except Exception:
         pass
     await cb.answer()
+
+
+async def _render_rps_start(cb, g):
+    text = ("✊✋✌️ <b>Камень-ножницы-бумага</b>\n\n"
+            f"👤 {escape(g['player1_name'])} vs {escape(g['player2_name'])}\n\n"
+            "Оба игрока — выберите ход (тайно):")
+    try:
+        await cb.message.edit_text(
+            text, reply_markup=keyboards.rps_kb(g["game_id"]), parse_mode="HTML")
+    except Exception:
+        pass
+
+
+_RPS_NAMES = {"rock": "✊ Камень", "paper": "✋ Бумага", "scissors": "✌️ Ножницы"}
+
+
+@router.callback_query(F.data.startswith("rps:"))
+async def cb_rps(cb: CallbackQuery):
+    _, game_id, choice = cb.data.split(":")
+    g = await storage.get_game(game_id)
+    if not g or g["status"] != "active":
+        await cb.answer("Игра завершена!", show_alert=True)
+        return
+    uid = cb.from_user.id
+    if uid not in (g["player1_id"], g["player2_id"]):
+        await cb.answer("Вы не участник этой игры", show_alert=True)
+        return
+    state = g["state"]
+    is_p1 = uid == g["player1_id"]
+    if is_p1 and state.get("choice1"):
+        await cb.answer("Вы уже выбрали, ждём соперника", show_alert=True)
+        return
+    if not is_p1 and state.get("choice2"):
+        await cb.answer("Вы уже выбрали, ждём соперника", show_alert=True)
+        return
+    if is_p1:
+        state["choice1"] = choice
+    else:
+        state["choice2"] = choice
+
+    if state["choice1"] and state["choice2"]:
+        res = games.rps_winner(state["choice1"], state["choice2"])
+        head = (
+            "✊✋✌️ <b>Результат</b>\n\n"
+            f"{escape(g['player1_name'])}: {_RPS_NAMES[state['choice1']]}\n"
+            f"{escape(g['player2_name'])}: {_RPS_NAMES[state['choice2']]}\n\n")
+        if res == 0:
+            body = "🤝 Ничья!"
+            wid = None
+        elif res == 1:
+            body = f"🏆 Победил {escape(g['player1_name'])}! {pe_random('celebrate')}"
+            wid = g["player1_id"]
+        else:
+            body = f"🏆 Победил {escape(g['player2_name'])}! {pe_random('celebrate')}"
+            wid = g["player2_id"]
+        await storage.update_game(game_id, state=state, status="finished")
+        if wid:
+            await storage.update_score(wid, g["chat_id"], games.STAKES["rps"])
+        try:
+            await cb.message.edit_text(head + body, parse_mode="HTML")
+        except Exception:
+            pass
+        await cb.answer()
+    else:
+        await storage.update_game(game_id, state=state)
+        await cb.answer("Выбор принят, ждём соперника…")

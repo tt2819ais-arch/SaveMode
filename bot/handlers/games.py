@@ -17,7 +17,7 @@ from bot.utils.text_tools import escape
 
 # Внутренний счёт за победу (для статистики; пользователю НЕ показывается,
 # к Telegram Stars отношения не имеет).
-STAKES = {"ttt": 10, "duel": 15, "dice": 5, "flip": 5, "bw": 10}
+STAKES = {"ttt": 10, "duel": 15, "dice": 5, "flip": 5, "bw": 10, "rps": 5}
 
 GAME_TITLES = {
     "ttt": "❌⭕ Крестики-нолики",
@@ -25,7 +25,16 @@ GAME_TITLES = {
     "dice": "🎲 Кубик",
     "flip": "🪙 Монетка",
     "bw": "🎨 Закрась поле",
+    "rps": "✊✋✌️ Камень-ножницы-бумага",
 }
+
+
+def rps_winner(c1: str, c2: str) -> int:
+    """0 = ничья, 1 = победил первый, 2 = победил второй."""
+    if c1 == c2:
+        return 0
+    beats = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
+    return 1 if beats.get(c1) == c2 else 2
 
 
 def _new_game_id() -> str:
@@ -44,6 +53,8 @@ def _initial_state(game_type: str) -> dict:
         return {"roll1": None, "roll2": None}
     if game_type == "flip":
         return {"choice1": None, "result": None}
+    if game_type == "rps":
+        return {"choice1": None, "choice2": None}
     return {}
 
 

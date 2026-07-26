@@ -80,7 +80,7 @@ def test_duel():
 
 def test_stakes_and_effects():
     # STAKES остаётся ВНУТРЕННИМ счётом (для статистики), но НЕ показывается.
-    assert set(STAKES) == {"ttt", "duel", "dice", "flip", "bw"}
+    assert set(STAKES) == {"ttt", "duel", "dice", "flip", "bw", "rps"}
     assert set(EFFECTS) == set(EFFECT_NAMES)
     assert "chipmunk" in EFFECTS and "robot" in EFFECTS
 
@@ -110,29 +110,33 @@ def test_no_stars_in_game_texts():
 
 
 def test_commands_registry():
-    assert len(COMMANDS) == 35
+    assert len(COMMANDS) == 46
     # все имена уникальны и начинаются с точки
     names = [c[0] for c in COMMANDS]
-    assert len(set(names)) == 35
+    assert len(set(names)) == 46
     assert all(n.startswith(".") for n in names)
     # индексация работает
     assert get_command_index(".help") >= 0
     assert get_command_index(".nonexistent") == -1
     # запрещённые команды отсутствуют (HARD RULE)
     for banned in (".crash", ".spam", ".zaebu", ".dox", ".clone", ".mute",
-                   ".troll"):
+                   ".troll",
+                   # отклонённый userbot-набор (свотинг/докс/фейки/спам/кража)
+                   ".swat", ".deanon", ".iter", ".search", ".fake", ".cb",
+                   ".gen", ".mediaspam", ".zaeb", ".ad", ".tagall", ".tralka",
+                   ".mat", ".autocrypto"):
         assert banned not in names
     # новые инструменты присутствуют
     for tool in (".qr", ".tr", ".calc", ".pass", ".mock", ".rev", ".roll",
                  ".pick", ".count", ".b64", ".spoiler"):
         assert tool in names
     grouped = get_commands_by_category()
-    assert sum(len(v) for v in grouped.values()) == 35
+    assert sum(len(v) for v in grouped.values()) == 46
 
 
 def test_category_distribution():
     grouped = get_commands_by_category()
-    expected = {"messages": 6, "tools": 11, "games": 6,
+    expected = {"messages": 9, "tools": 17, "games": 8,
                 "processing": 10, "other": 2}
     for key, exp in expected.items():
         assert len(grouped.get(key, [])) == exp, (key, len(grouped.get(key, [])))
@@ -681,6 +685,57 @@ def test_no_typing_update_type():
     # нет никакого typing/chat_action апдейта — только реакции
     assert not (fields & {"typing", "chat_action", "message_typing"})
     assert "message_reaction" in fields  # это единственное «пассивное» событие
+
+
+def test_rps_winner():
+    from bot.handlers.games import rps_winner
+    assert rps_winner("rock", "scissors") == 1
+    assert rps_winner("scissors", "rock") == 2
+    assert rps_winner("paper", "rock") == 1
+    assert rps_winner("rock", "paper") == 2
+    assert rps_winner("scissors", "paper") == 1
+    assert rps_winner("rock", "rock") == 0
+    assert rps_winner("paper", "paper") == 0
+
+
+def test_parse_poll():
+    from bot.utils.tools import parse_poll
+    assert parse_poll("Вопрос / А / Б") == ("Вопрос", ["А", "Б"])
+    assert parse_poll("Q / a / b / c") == ("Q", ["a", "b", "c"])
+    assert parse_poll("нет вариантов") is None       # <2 опций
+    assert parse_poll("Q / only") is None             # 1 опция
+    assert parse_poll("") is None
+    # >10 вариантов отклоняется
+    assert parse_poll("Q / " + " / ".join(str(i) for i in range(11))) is None
+
+
+def test_parse_del_count():
+    from bot.utils.tools import parse_del_count
+    assert parse_del_count("") == 1
+    assert parse_del_count("3") == 1 or parse_del_count("3") == 3
+    assert parse_del_count("3") == 3
+    assert parse_del_count("999") == 20      # clamp
+    assert parse_del_count("0") == 1         # clamp min
+    assert parse_del_count("abc") == 1
+
+
+def test_magic8_and_new_commands_registered():
+    from bot.utils.tools import magic8, _8BALL_ANSWERS
+    assert magic8("вопрос") in _8BALL_ANSWERS
+    # новые команды присутствуют в реестре
+    names = [c[0] for c in COMMANDS]
+    for c in (".id", ".poll", ".del", ".rps", ".8ball", ".quote",
+              ".ping", ".wiki", ".write", ".ip", ".bold"):
+        assert c in names, c
+
+
+def test_gift_date_format():
+    from bot.handlers.commands import _fmt_gift_date
+    # 1761399848 -> МСК дата
+    out = _fmt_gift_date(1761399848)
+    assert "2025" in out and ":" in out and "." in out
+    assert _fmt_gift_date(None) == ""
+    assert _fmt_gift_date(0) == ""
 
 
 def test_bare_dot_is_not_command():

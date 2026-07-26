@@ -20,7 +20,7 @@ logger = logging.getLogger("savemod")
 
 # Маркер сборки — по нему видно, какой билд реально запущен на хосте.
 # Если в логе НЕ видно этой строки после git pull + restart — крутится старый код.
-BUILD = "2026-07-26 baredot-fix+gifts-real+nk-v2+kawaii-toggle+love-heart+premium-everywhere"
+BUILD = "2026-07-26 +11cmds(id,poll,del,rps,8ball,quote,ping,wiki,write,ip,bold)+gifts-paginate-date"
 
 
 async def main():

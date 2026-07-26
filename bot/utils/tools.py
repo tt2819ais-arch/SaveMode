@@ -208,3 +208,220 @@ async def translate(text: str, target: str) -> str:
         async with s.get(url, params=params, timeout=15) as r:
             data = await r.json(content_type=None)
     return "".join(chunk[0] for chunk in data[0] if chunk and chunk[0])
+
+
+# ── .8ball — магический шар ──
+_8BALL_ANSWERS = [
+    "Бесспорно", "Да", "Определённо да", "Можешь быть уверен",
+    "Скорее всего", "Хорошие перспективы", "Знаки говорят «да»",
+    "Пока неясно, попробуй снова", "Спроси позже", "Лучше не рассказывать",
+    "Сконцентрируйся и спроси опять", "Даже не думай", "Мой ответ — нет",
+    "По моим данным — нет", "Очень сомнительно",
+]
+
+
+def magic8(seed_text: str = "") -> str:
+    """Случайный ответ магического шара."""
+    return random.choice(_8BALL_ANSWERS)
+
+
+# ── .poll — разбор аргументов ──
+def parse_poll(text: str):
+    """'вопрос / вар1 / вар2 …' → (question, [options]) или None.
+
+    2–10 вариантов, вопрос и варианты непустые.
+    """
+    parts = [p.strip() for p in (text or "").split("/")]
+    parts = [p for p in parts if p]
+    if len(parts) < 3:
+        return None
+    question, options = parts[0], parts[1:]
+    if not (2 <= len(options) <= 10):
+        return None
+    # Telegram: вопрос ≤300, вариант ≤100
+    question = question[:300]
+    options = [o[:100] for o in options]
+    return question, options
+
+
+# ── .del — сколько удалять ──
+def parse_del_count(arg: str) -> int:
+    """Число сообщений для .del: 1..20, по умолчанию 1."""
+    a = (arg or "").strip()
+    if a.isdigit():
+        return max(1, min(20, int(a)))
+    return 1
+
+
+# ── .ip — публичная гео-инфа об IP/домене ──
+async def ip_info(addr: str) -> str:
+    """Публичная информация об IP/домене через ip-api.com (без ключа)."""
+    import aiohttp
+    addr = (addr or "").strip().split()[0]
+    url = f"http://ip-api.com/json/{addr}"
+    params = {"lang": "ru", "fields":
+              "status,message,query,country,regionName,city,isp,org,as,reverse"}
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, params=params, timeout=15) as r:
+            d = await r.json(content_type=None)
+    if d.get("status") != "success":
+        return f"❌ Не удалось: {d.get('message', 'неизвестная ошибка')}"
+    lines = [f"🌐 <b>{d.get('query', addr)}</b>"]
+    loc = ", ".join(x for x in (d.get("country"), d.get("regionName"),
+                                d.get("city")) if x)
+    if loc:
+        lines.append(f"📍 {loc}")
+    if d.get("isp"):
+        lines.append(f"🏢 {d['isp']}")
+    if d.get("org") and d.get("org") != d.get("isp"):
+        lines.append(f"🔧 {d['org']}")
+    if d.get("as"):
+        lines.append(f"🛰 {d['as']}")
+    return "\n".join(lines)
+
+
+# ── .wiki — краткая выжимка из Википедии ──
+async def wiki_summary(query: str, lang: str = "ru") -> str:
+    """Поиск статьи в Википедии + краткое резюме со ссылкой."""
+    import aiohttp
+    import urllib.parse
+    query = (query or "").strip()
+    if not query:
+        return "Использование: .wiki запрос"
+    headers = {"User-Agent": "SaveMOD-bot/1.0 (Telegram business assistant)"}
+
+    async def _json(session, url, params=None):
+        """GET → JSON, либо None если статус не 200 / тело пустое."""
+        try:
+            async with session.get(url, params=params, timeout=15) as r:
+                if r.status != 200:
+                    return None
+                body = await r.text()
+                if not body.strip():
+                    return None
+                import json as _json_mod
+                return _json_mod.loads(body)
+        except Exception:
+            return None
+
+    async with aiohttp.ClientSession(headers=headers) as s:
+        # 1) найти точный заголовок статьи
+        data = await _json(s, f"https://{lang}.wikipedia.org/w/api.php",
+                           {"action": "opensearch", "search": query,
+                            "limit": 1, "format": "json"})
+        titles = data[1] if data and len(data) > 1 else []
+        if not titles:
+            return f"🔍 По запросу «{query}» в Википедии ничего не найдено."
+        title = titles[0]
+        page_url = (f"https://{lang}.wikipedia.org/wiki/"
+                    + urllib.parse.quote(title.replace(" ", "_")))
+
+        # 2) краткое резюме через REST summary
+        enc = urllib.parse.quote(title.replace(" ", "_"))
+        summ = await _json(
+            s, f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{enc}")
+        extract = (summ or {}).get("extract", "").strip() if summ else ""
+        if summ:
+            page_url = (summ.get("content_urls", {})
+                        .get("desktop", {}).get("page") or page_url)
+
+        # 3) запасной путь — query/extracts (если REST не ответил)
+        if not extract:
+            q = await _json(s, f"https://{lang}.wikipedia.org/w/api.php",
+                            {"action": "query", "prop": "extracts",
+                             "exintro": 1, "explaintext": 1, "redirects": 1,
+                             "titles": title, "format": "json"})
+            if q:
+                pages = q.get("query", {}).get("pages", {})
+                for p in pages.values():
+                    extract = (p.get("extract") or "").strip()
+                    if extract:
+                        break
+
+    if not extract:
+        return f"🔍 «{title}» — статья найдена.\n🔗 {page_url}"
+    if len(extract) > 900:
+        extract = extract[:900].rsplit(" ", 1)[0] + "…"
+    return f"📚 <b>{title}</b>\n\n{extract}\n\n🔗 {page_url}"
+
+
+# ── .write — текст «от руки» картинкой ──
+def handwrite_png(text: str) -> bytes:
+    """Отрисовать текст рукописным стилем на «листе» → PNG-байты."""
+    from PIL import Image, ImageDraw, ImageFont
+    import textwrap
+    text = (text or "").strip() or "…"
+    wrapped = "\n".join(textwrap.fill(line, width=32)
+                        for line in text.splitlines()) or "…"
+    lines = wrapped.splitlines() or ["…"]
+    font = None
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(path, 40)
+            break
+        except Exception:
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+    line_h = 56
+    pad = 40
+    width = 720
+    height = pad * 2 + line_h * len(lines)
+    img = Image.new("RGB", (width, height), (250, 249, 240))
+    draw = ImageDraw.Draw(img)
+    # линии тетради
+    for y in range(pad + line_h - 12, height - pad + 12, line_h):
+        draw.line([(pad, y), (width - pad, y)], fill=(210, 220, 235), width=1)
+    # лёгкая «рукописная» дрожь: небольшой наклон/сдвиг строк
+    for i, ln in enumerate(lines):
+        y = pad + i * line_h + random.randint(-2, 2)
+        x = pad + random.randint(-1, 3)
+        draw.text((x, y), ln, fill=(30, 40, 90), font=font)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+# ── .quote — сообщение как картинка-цитата ──
+def quote_png(text: str, author: str = "") -> bytes:
+    """Отрисовать текст цитаты + автора на тёмной карточке → PNG-байты."""
+    from PIL import Image, ImageDraw, ImageFont
+    import textwrap
+    text = (text or "").strip() or "…"
+    wrapped = "\n".join(textwrap.fill(line, width=34)
+                        for line in text.splitlines()) or "…"
+    lines = wrapped.splitlines() or ["…"]
+    font = big = None
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(path, 38)
+            big = ImageFont.truetype(path, 30)
+            break
+        except Exception:
+            continue
+    if font is None:
+        font = big = ImageFont.load_default()
+    line_h = 52
+    pad = 50
+    width = 800
+    height = pad * 2 + line_h * len(lines) + (50 if author else 0)
+    img = Image.new("RGB", (width, height), (24, 26, 32))
+    draw = ImageDraw.Draw(img)
+    # акцентная полоса слева
+    draw.rectangle([(0, 0), (10, height)], fill=(90, 140, 255))
+    draw.text((pad - 20, pad - 30), "\u201C", fill=(90, 140, 255),
+              font=big)
+    for i, ln in enumerate(lines):
+        draw.text((pad, pad + i * line_h), ln, fill=(235, 238, 245), font=font)
+    if author:
+        draw.text((pad, pad + len(lines) * line_h + 8),
+                  f"— {author}", fill=(150, 175, 230), font=big)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
