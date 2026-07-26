@@ -117,6 +117,20 @@ EDIT_IN_PLACE_COMMANDS = {
     ".pick", ".b64", ".spoiler", ".tr", ".status", ".time",
 }
 
+# Полный набор РАСПОЗНАВАЕМЫХ команд: всё из меню + служебные (.autodel).
+# Нужен, чтобы голая точка «.», «. » или «.нетакойкоманды» считались
+# ОБЫЧНЫМ сообщением — их нельзя ни диспатчить, ни авто-удалять.
+from bot.utils.constants import COMMANDS as _COMMANDS  # noqa: E402
+KNOWN_COMMANDS = {c for c, *_ in _COMMANDS} | {".autodel"}
+
+
+def is_known_command(text: str | None) -> bool:
+    """True, если первый токен текста — распознаваемая .команда."""
+    if not text:
+        return False
+    first = text.split(maxsplit=1)[0].lower()
+    return first in KNOWN_COMMANDS
+
 
 async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
     """Роутер команд владельца."""

@@ -683,6 +683,19 @@ def test_no_typing_update_type():
     assert "message_reaction" in fields  # это единственное «пассивное» событие
 
 
+def test_bare_dot_is_not_command():
+    """Голая точка и неизвестные .токены — НЕ команды (не диспатчить/не удалять)."""
+    from bot.handlers.commands import is_known_command
+    # НЕ команды — обычные сообщения, их нельзя удалять
+    for txt in (".", ". ", ".  ", ".notarealcommand", ".привет", ".", ".123", ".."):
+        assert is_known_command(txt) is False, f"{txt!r} ошибочно распознан как команда"
+    assert is_known_command("") is False
+    assert is_known_command(None) is False
+    # А это — настоящие команды (в т.ч. с аргументом и в другом регистре)
+    for txt in (".help", ".HELP", ".gifts @durov", ".nk hug", ".autodel on", ".ttt"):
+        assert is_known_command(txt) is True, f"{txt!r} должен быть командой"
+
+
 if __name__ == "__main__":
     passed = 0
     failed = 0

@@ -249,7 +249,8 @@ async def on_business_message(msg: Message, bot: Bot):
 
     # Роутинг команд — только сообщения от владельца, начинающиеся с точки
     is_owner_msg = owner_id and fu_id == owner_id
-    if msg.text and msg.text.startswith(".") and is_owner_msg:
+    if (msg.text and msg.text.startswith(".") and is_owner_msg
+            and cmd_handlers.is_known_command(msg.text)):
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)
         await _maybe_autodelete(bot, msg, bc_id, owner_id)
         return
@@ -282,7 +283,8 @@ async def on_business_message(msg: Message, bot: Bot):
             return
 
     # Если контент от владельца — точка-команда с медиа (например .check с фото)
-    if msg.caption and msg.caption.startswith(".") and is_owner_msg:
+    if (msg.caption and msg.caption.startswith(".") and is_owner_msg
+            and cmd_handlers.is_known_command(msg.caption)):
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)
         await _maybe_autodelete(bot, msg, bc_id, owner_id)
         return
