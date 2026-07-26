@@ -23,6 +23,7 @@ curated tasteful pool. Determinism in tests via :func:`seed`.
 from __future__ import annotations
 
 import random
+import re
 from html import escape as _esc
 
 # ---------------------------------------------------------------------------
@@ -209,3 +210,55 @@ def pe_random(theme: str | None = None) -> str:
 def accent() -> str:
     """A single tasteful decorative premium emoji (sparkle/star/ribbon…)."""
     return pe_random("decor")
+
+
+# Glyphs that must STAY plain even inside premiumize() — strict-format alert
+# markers where a fancy animated emoji would look wrong / lower trust.
+# (These have no VARIANTS entry anyway, but we guard explicitly to be safe.)
+# ⭐/⭐️ stay plain: they mark a Telegram-Stars PRICE (e.g. gift prices) — an
+# animated star would be noisy and re-introduce the star glyph the owner disliked.
+_KEEP_PLAIN = {"🗑", "✏️", "🚨", "⚠️", "⇩", "💤", "❌", "⛔", "⭐", "⭐️"}
+
+# Match a single emoji-ish grapheme (base symbol + optional VS16 + optional
+# combining marks / ZWJ sequences). Good enough for our bot-authored strings.
+_EMOJI_RE = re.compile(
+    "(?:[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF]"
+    "[\uFE0F\u200D\U0001F3FB-\U0001F3FF]*)+"
+)
+
+
+def premiumize(text: str) -> str:
+    """Replace ordinary emoji in an HTML-ready string with random premium tags.
+
+    Only glyphs present in ``VARIANTS`` are swapped (each occurrence gets an
+    independent random variant); everything else — including strict alert
+    markers in ``_KEEP_PLAIN`` and unknown emoji — is left untouched. The
+    result MUST be sent with ``parse_mode="HTML"`` (the caller's responsibility).
+
+    Safe on already-built HTML: emoji never appear inside tags, and we skip
+    any run that isn't an exact known glyph, so ``<tg-emoji>`` tags already in
+    the text are not re-processed (their glyph body is escaped, not a raw
+    emoji run adjacent to ``<``).
+    """
+    if not text:
+        return text
+
+    def _sub(m: re.Match) -> str:
+        g = m.group(0)
+        if g in _KEEP_PLAIN or g not in VARIANTS:
+            return g
+        return _tag(g)
+
+    # Protect already-present <tg-emoji …>…</tg-emoji> spans so their escaped
+    # glyph body is never wrapped a second time. Process only the gaps.
+    out = []
+    last = 0
+    for tag in _TG_EMOJI_TAG_RE.finditer(text):
+        out.append(_EMOJI_RE.sub(_sub, text[last:tag.start()]))
+        out.append(tag.group(0))
+        last = tag.end()
+    out.append(_EMOJI_RE.sub(_sub, text[last:]))
+    return "".join(out)
+
+
+_TG_EMOJI_TAG_RE = re.compile(r"<tg-emoji\b[^>]*>.*?</tg-emoji>", re.S)

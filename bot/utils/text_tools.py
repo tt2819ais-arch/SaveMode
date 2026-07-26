@@ -29,27 +29,35 @@ def switch_layout(text: str) -> str:
 
 
 # --- .kawaii ---
-_KAWAII_EMOJI = ["✨", "🌸", "💖", "🎀", "💫", "🌟", "🥺", "💕", "🌈", "🍡"]
+# Premium-глифы для kawaii-декора (случайный вариант на каждый показ).
+_KAWAII_GLYPHS = ["✨", "🌸", "💗", "🎀", "🌟", "🥺", "💕", "🦋", "🌺"]
 _KAWAII_FACES = ["(◕‿◕)", "(=^･ω･^=)", "(✿◠‿◠)", "uwu", "owo", "(｡♥‿♥｡)", "ﾉ"]
-_KAWAII_MAP = {
-    "р": "ｒ", "л": "ｌ", "o": "ㅇ", "l": "ｌ", "r": "ｗ",
-}
 
 
 def kawaii(text: str) -> str:
-    """Kawaii-форматирование текста."""
+    """Kawaii-форматирование текста (HTML, с premium-эмодзи).
+
+    Возвращает HTML-строку: текст экранируется, эмодзи — premium <tg-emoji>.
+    Отправлять с parse_mode="HTML".
+    """
     if not text:
         return text
+    from bot.utils.premium_emoji import pe
+
+    def _emo() -> str:
+        return pe(random.choice(_KAWAII_GLYPHS))
+
     words = text.split()
     out = []
     for w in words:
         # мягкая замена r->w для kawaii-эффекта
         w2 = w.replace("r", "w").replace("R", "W")
-        out.append(w2)
+        out.append(escape(w2))
         if random.random() < 0.4:
-            out.append(random.choice(_KAWAII_EMOJI))
+            out.append(_emo())
+    face = random.choice(_KAWAII_FACES)
     result = " ".join(out)
-    result += " " + random.choice(_KAWAII_FACES) + " " + random.choice(_KAWAII_EMOJI)
+    result += " " + escape(face) + " " + _emo()
     return result
 
 

@@ -550,11 +550,14 @@ def test_tools_qr():
 def test_autodelete_set_logic():
     """EDIT_IN_PLACE команды не должны авто-удаляться."""
     from bot.handlers.commands import EDIT_IN_PLACE_COMMANDS
-    assert ".kawaii" in EDIT_IN_PLACE_COMMANDS
+    # .love рисует сердце ПОВЕРХ сообщения-триггера → его нельзя удалять
+    assert ".love" in EDIT_IN_PLACE_COMMANDS
     assert ".calc" in EDIT_IN_PLACE_COMMANDS
     # команды с отдельным выводом НЕ в списке (их триггер удаляется)
     assert ".qr" not in EDIT_IN_PLACE_COMMANDS
     assert ".nk" not in EDIT_IN_PLACE_COMMANDS
+    # .kawaii теперь тумблер: подтверждение уходит в ЛС, триггер удаляется
+    assert ".kawaii" not in EDIT_IN_PLACE_COMMANDS
 
 
 def test_premium_emoji_wellformed():
@@ -601,6 +604,83 @@ def test_key_texts_have_premium_emoji():
     assert "<tg-emoji" in out
     # опасные символы пользователя экранированы (нет сырого <b> от юзера)
     assert "&lt;b&gt;" in out and "&amp;" in out
+
+
+def test_premiumize_keeps_alerts_plain():
+    """premiumize() оборачивает известные глифы, но НЕ трогает алерт-маркеры."""
+    from bot.utils import premium_emoji as P
+    P.seed(3)
+    src = "🎁 подарок 🔑 ключ ⚙️ — 🗑 ✏️ 🚨 ⚠️ 💤"
+    out = P.premiumize(src)
+    assert "<tg-emoji" in out
+    for keep in ("🗑", "✏️", "🚨", "⚠️", "💤"):
+        assert keep in out, keep
+    # уже-премиум текст не должен оборачиваться повторно
+    pre = f"{P.pe('gift')} привет ⚙️"
+    twice = P.premiumize(pre)
+    assert "</tg-emoji></tg-emoji>" not in twice
+    assert twice.count("<tg-emoji") == 2
+
+
+def test_kawaii_html_premium():
+    """kawaii() -> HTML c экранированием и premium-эмодзи."""
+    out = kawaii("<b>hi</b> rr")
+    assert "&lt;b&gt;" in out          # спецсимволы экранированы
+    assert "<tg-emoji" in out          # есть premium-эмодзи
+    assert "rr" not in out             # r->w замена сработала
+
+
+def test_love_heart_frames():
+    """.love: форма сердца раскрывается по одной клетке."""
+    from bot.handlers.commands import _HEART_SHAPE
+    cells = [(r, c) for r, row in enumerate(_HEART_SHAPE)
+             for c, ch in enumerate(row) if ch == "1"]
+    assert len(cells) >= 20            # сердце достаточно крупное
+    assert all(len(row) == len(_HEART_SHAPE[0]) for row in _HEART_SHAPE)
+    # прогрессия строго монотонная (каждый кадр = +1 клетка)
+    for n in range(1, len(cells) + 1):
+        assert len(set(cells[:n])) == n
+
+
+def test_render_gift_line():
+    """.gifts: строка обычного и уникального (NFT) подарка."""
+    from bot.handlers.commands import _render_gift_line
+
+    class _Stk:
+        emoji = "🏆"
+
+    class _RegGift:
+        star_count = 100
+        sticker = _Stk()
+        name = None
+
+    class _RegOwned:
+        gift = _RegGift()
+
+    line, price = _render_gift_line(_RegOwned())
+    assert price == 100 and "100" in line and "🏆" in line
+
+    class _UniqGift:
+        name = "PlushPepe-42"
+        number = 42
+
+    class _UniqOwned:
+        gift = _UniqGift()
+        transfer_star_count = 500
+
+    line2, price2 = _render_gift_line(_UniqOwned())
+    assert price2 == 500
+    assert "t.me/nft/PlushPepe-42" in line2
+    assert "#42" in line2
+
+
+def test_no_typing_update_type():
+    """Фиксация факта: Bot API НЕ доставляет 'печатает' боту — фича невозможна."""
+    from aiogram.types import Update
+    fields = set(Update.model_fields.keys())
+    # нет никакого typing/chat_action апдейта — только реакции
+    assert not (fields & {"typing", "chat_action", "message_typing"})
+    assert "message_reaction" in fields  # это единственное «пассивное» событие
 
 
 if __name__ == "__main__":

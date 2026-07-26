@@ -262,6 +262,25 @@ async def on_business_message(msg: Message, bot: Bot):
         if handled:
             return
 
+    # Kawaii авто-режим: преобразуем ИСХОДЯЩИЕ сообщения владельца (не команды)
+    # в чатах, где он включил .kawaii. Редактируем сообщение на месте.
+    # ВАЖНО: после проверки Wordle — чтобы не «кавайить» догадки в игре.
+    if is_owner_msg and msg.text and not msg.text.startswith("."):
+        try:
+            on = await storage.get_setting(owner_id, f"kawaii:{msg.chat.id}", "0")
+        except Exception:
+            on = "0"
+        if on == "1":
+            from bot.utils.text_tools import kawaii as _kawaii
+            try:
+                await bot.edit_message_text(
+                    chat_id=msg.chat.id, message_id=msg.message_id,
+                    text=_kawaii(msg.text), business_connection_id=bc_id,
+                    parse_mode="HTML")
+            except Exception as e:
+                logger.debug("kawaii авто-преобразование не удалось: %s", e)
+            return
+
     # Если контент от владельца — точка-команда с медиа (например .check с фото)
     if msg.caption and msg.caption.startswith(".") and is_owner_msg:
         await cmd_handlers.dispatch_command(bot, msg, bc_id, owner_id)

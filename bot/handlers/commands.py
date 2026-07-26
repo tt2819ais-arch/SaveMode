@@ -7,6 +7,7 @@
 import asyncio
 import io
 import logging
+import random
 import time
 from datetime import datetime
 
@@ -19,7 +20,7 @@ from bot.utils import keyboards
 from bot.utils.text_tools import (
     escape, switch_layout, kawaii, love, format_user,
 )
-from bot.utils.premium_emoji import pe, pe_random
+from bot.utils.premium_emoji import pe, pe_random, premiumize
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,8 @@ async def _notify_owner_cmd(bot: Bot, owner_id: int, cmd: str,
         uname = f"@{username}" if username else "чата"
         await bot.send_message(
             chat_id=owner_id,
-            text=f"🃏 <b>{escape(cmd)}</b> для {escape(uname)}.\n{escape(desc)}",
+            text=premiumize(
+                f"🃏 <b>{escape(cmd)}</b> для {escape(uname)}.\n{escape(desc)}"),
             parse_mode="HTML",
         )
     except Exception:
@@ -111,7 +113,7 @@ async def maybe_afk_reply(bot: Bot, msg: Message, bc_id: str, reason: str):
 # Команды, которые ЗАМЕНЯЮТ (редактируют) исходное сообщение владельца
 # результатом — их триггер удалять НЕ нужно (иначе пропадёт и результат).
 EDIT_IN_PLACE_COMMANDS = {
-    ".kawaii", ".love", ".sw", ".type", ".calc", ".mock", ".rev", ".roll",
+    ".love", ".sw", ".type", ".calc", ".mock", ".rev", ".roll",
     ".pick", ".b64", ".spoiler", ".tr", ".status", ".time",
 }
 
@@ -213,30 +215,102 @@ async def dispatch_command(bot: Bot, msg: Message, bc_id: str, owner_id: int):
 
 async def cmd_help(bot, msg, bc_id, owner_id, arg, partner):
     from bot.utils.constants import menu_text
+    from bot.config import OWNER_ID
+    # В личке бота отвечаем в тот же чат; в бизнес-чате — владельцу в ЛС.
+    dest = msg.chat.id if not bc_id else owner_id
     await bot.send_message(
-        chat_id=owner_id,
+        chat_id=dest,
         text=menu_text(),
-        reply_markup=keyboards.main_menu_kb(is_owner=True),
+        reply_markup=keyboards.main_menu_kb(is_owner=(owner_id == OWNER_ID)),
         parse_mode="HTML",
     )
 
 
 async def cmd_kawaii(bot, msg, bc_id, owner_id, arg, partner):
-    if not arg:
-        await _edit_own(bot, msg, bc_id, "🌸 Укажите текст: .kawaii [текст]")
-        return
-    await _edit_own(bot, msg, bc_id, kawaii(arg))
-    await _notify_owner_cmd(bot, owner_id, ".kawaii", partner,
-                            "Kawaii-режим форматирования текста.")
+    """Переключатель kawaii-режима для ТЕКУЩЕГО чата.
+
+    Когда включён — каждое исходящее сообщение владельца в этом чате
+    автоматически оформляется в kawaii-стиле (см. business.on_business_message).
+    """
+    chat_id = msg.chat.id
+    key = f"kawaii:{chat_id}"
+    a = arg.strip().lower()
+    cur = await storage.get_setting(owner_id, key, "0")
+    if a in ("on", "вкл", "1", "да"):
+        new = "1"
+    elif a in ("off", "выкл", "0", "нет", "стоп"):
+        new = "0"
+    else:
+        new = "0" if cur == "1" else "1"
+    await storage.set_setting(owner_id, key, new)
+
+    if new == "1":
+        note = (f"{pe('cherry_blossom')} <b>Kawaii-режим включён</b> для этого чата.\n"
+                "Теперь каждое ваше сообщение здесь будет автоматически "
+                "оформляться в kawaii-стиле с premium-эмодзи.\n\n"
+                "Выключить: <code>.kawaii off</code>")
+    else:
+        note = (f"{pe('cherry_blossom')} <b>Kawaii-режим выключен</b> для этого чата.\n"
+                "Ваши сообщения больше не преобразуются.")
+    # Подтверждение — в личку владельцу (в чате собеседник его не увидит).
+    await bot.send_message(owner_id, premiumize(note), parse_mode="HTML")
+
+
+# Форма «большого сердца» из маленьких сердечек (1 = закрашено).
+_HEART_SHAPE = [
+    "01100110",
+    "11111111",
+    "11111111",
+    "01111110",
+    "00111100",
+    "00011000",
+]
 
 
 async def cmd_love(bot, msg, bc_id, owner_id, arg, partner):
-    if not arg:
-        await _edit_own(bot, msg, bc_id, "💕 Укажите текст: .love [текст]")
-        return
-    await _edit_own(bot, msg, bc_id, love(arg), parse_mode="HTML")
-    await _notify_owner_cmd(bot, owner_id, ".love", partner,
-                            "Оформление текста сердечками.")
+    """Рисует БОЛЬШОЕ сердце из маленьких premium-сердечек, раскрывая по одному.
+
+    Прогрессивная анимация через редактирование сообщения на месте.
+    """
+    # Один и тот же вариант premium-сердечка на всю картинку — так ровнее.
+    heart = pe("heart")
+    # Координаты закрашенных клеток в порядке раскрытия (сверху вниз, слева направо).
+    cells = [(r, c) for r, row in enumerate(_HEART_SHAPE)
+             for c, ch in enumerate(row) if ch == "1"]
+    width = len(_HEART_SHAPE[0])
+
+    def frame(n: int) -> str:
+        """Кадр: первые n клеток закрашены premium-сердцем."""
+        filled = set(cells[:n])
+        lines = []
+        for r, row in enumerate(_HEART_SHAPE):
+            line = "".join(heart if (r, c) in filled else "  "
+                           for c in range(width))
+            lines.append(line)
+        return "\n".join(lines)
+
+    # В бизнес-чате редактируем сообщение-триггер владельца; в личке — своё.
+    total = len(cells)
+    if bc_id:
+        target_chat = msg.chat.id
+        target_mid = msg.message_id
+        edit_kwargs = dict(business_connection_id=bc_id)
+        sent = None
+    else:
+        sent = await bot.send_message(msg.chat.id, heart, parse_mode="HTML")
+        target_chat = sent.chat.id
+        target_mid = sent.message_id
+        edit_kwargs = {}
+
+    for n in range(1, total + 1):
+        try:
+            await bot.edit_message_text(
+                chat_id=target_chat, message_id=target_mid,
+                text=frame(n), parse_mode="HTML", **edit_kwargs)
+        except Exception as e:
+            logger.debug(".love кадр %d прерван: %s", n, e)
+            break
+        await asyncio.sleep(0.35)
 
 
 async def cmd_sw(bot, msg, bc_id, owner_id, arg, partner):
@@ -324,11 +398,14 @@ async def cmd_check(bot, msg, bc_id, owner_id, arg, partner):
 async def cmd_afk(bot, msg, bc_id, owner_id, arg, partner):
     if arg.strip().lower() in ("off", "выкл", "выключить"):
         await storage.remove_afk(owner_id)
-        await _edit_own(bot, msg, bc_id, "✅ AFK-режим выключен.")
+        await _edit_own(bot, msg, bc_id, premiumize("✅ AFK-режим выключен."),
+                        parse_mode="HTML")
         return
     reason = arg.strip() or "не указана"
     await storage.set_afk(owner_id, reason)
-    await _edit_own(bot, msg, bc_id, f"💤 AFK включён. Причина: {reason}")
+    await _edit_own(bot, msg, bc_id,
+                    premiumize(f"💤 AFK включён. Причина: {escape(reason)}"),
+                    parse_mode="HTML")
 
 
 async def cmd_info(bot, msg, bc_id, owner_id, arg, partner):
@@ -352,30 +429,98 @@ async def cmd_info(bot, msg, bc_id, owner_id, arg, partner):
         f"🌐 Язык: {escape(getattr(target, 'language_code', '') or 'неизвестно')}\n\n"
         "<i>Показаны только публичные данные из Telegram API.</i>"
     )
-    await bot.send_message(owner_id, info, parse_mode="HTML")
+    await bot.send_message(owner_id, premiumize(info), parse_mode="HTML")
+
+
+# nekos.best API v2 — требует корректный User-Agent (см. их доки).
+NEKOS_BASE = "https://nekos.best/api/v2"
+NEKOS_UA = "SaveMOD/1.0 (+https://github.com/tt2819ais-arch/SaveMode)"
+# Кэш категорий (обнаруживаем динамически через /endpoints).
+_nk_endpoints: dict = {}
+
+
+async def _nk_get_endpoints(session: aiohttp.ClientSession) -> dict:
+    """Категории nekos.best {name: {'format': 'png'|'gif'}} (с кэшем)."""
+    global _nk_endpoints
+    if _nk_endpoints:
+        return _nk_endpoints
+    async with session.get(
+            f"{NEKOS_BASE}/endpoints",
+            timeout=aiohttp.ClientTimeout(total=15)) as r:
+        data = await r.json()
+    # /endpoints иногда включает служебные ключи — оставляем только категории
+    _nk_endpoints = {
+        k: v for k, v in data.items()
+        if isinstance(v, dict) and "format" in v
+    }
+    return _nk_endpoints
 
 
 async def cmd_nk(bot, msg, bc_id, owner_id, arg, partner):
-    url = None
+    """Случайная аниме-картинка/gif с nekos.best. .nk [категория]."""
+    want = arg.strip().lower().lstrip(".")
+    headers = {"User-Agent": NEKOS_UA}
+    result = None
+    fmt = "png"
+    category = None
     for attempt in range(2):
         try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get("https://nekos.best/api/v2/neko",
-                                 timeout=aiohttp.ClientTimeout(total=10)) as r:
-                    data = await r.json()
-                    url = data["results"][0]["url"]
+            async with aiohttp.ClientSession(headers=headers) as s:
+                eps = await _nk_get_endpoints(s)
+                if not eps:
                     break
+                if want and want in eps:
+                    category = want
+                else:
+                    category = random.choice(list(eps.keys()))
+                fmt = eps[category].get("format", "png")
+                async with s.get(
+                        f"{NEKOS_BASE}/{category}",
+                        timeout=aiohttp.ClientTimeout(total=15)) as r:
+                    data = await r.json()
+                    result = (data.get("results") or [None])[0]
+            if result:
+                break
         except Exception as e:
             logger.warning("nekos.best попытка %d: %s", attempt, e)
             await asyncio.sleep(1)
-    if url:
-        try:
-            await bot.send_photo(msg.chat.id, url, business_connection_id=bc_id)
-        except Exception:
-            await bot.send_message(msg.chat.id, url, business_connection_id=bc_id)
-    else:
+
+    if not result or not result.get("url"):
         await bot.send_message(
             owner_id, "😺 API неко-тян временно недоступен, попробуйте позже.")
+        return
+
+    url = result["url"]
+    # Подпись: источник/художник (png) или аниме (gif).
+    parts = [f"{pe('sparkles')} <b>nekos.best</b> · <code>{escape(category)}</code>"]
+    if result.get("artist_name"):
+        href = result.get("artist_href") or result.get("source_url") or ""
+        artist = escape(result["artist_name"])
+        parts.append(f"🎨 Художник: <a href=\"{escape(href)}\">{artist}</a>"
+                     if href else f"🎨 Художник: {artist}")
+    if result.get("anime_name"):
+        parts.append(f"🎬 Аниме: {escape(result['anime_name'])}")
+    if result.get("source_url"):
+        parts.append(f"🔗 <a href=\"{escape(result['source_url'])}\">Источник</a>")
+    caption = premiumize("\n".join(parts))
+
+    try:
+        if fmt == "gif":
+            await bot.send_animation(
+                msg.chat.id, url, caption=caption,
+                business_connection_id=bc_id, parse_mode="HTML")
+        else:
+            await bot.send_photo(
+                msg.chat.id, url, caption=caption,
+                business_connection_id=bc_id, parse_mode="HTML")
+    except Exception as e:
+        logger.warning("Отправка nekos.best не удалась: %s", e)
+        try:
+            await bot.send_message(
+                msg.chat.id, f"{caption}\n{url}",
+                business_connection_id=bc_id, parse_mode="HTML")
+        except Exception:
+            await bot.send_message(owner_id, url)
 
 
 async def cmd_short(bot, msg, bc_id, owner_id, arg, partner):
@@ -460,23 +605,128 @@ async def cmd_status(bot, msg, bc_id, owner_id, arg, partner):
     await bot.send_message(owner_id, note, parse_mode="HTML")
 
 
+def _render_gift_line(og) -> tuple[str, int]:
+    """Одна строка подарка -> (html_line, price_stars).
+
+    Regular-подарок: name = эмодзи-стикер, цена = star_count, без личной ссылки.
+    Unique (NFT)-подарок: name + ссылка t.me/nft/<name>, цена = стоимость передачи.
+    """
+    gift = getattr(og, "gift", None)
+    # Unique gift (NFT) — есть поле .name и публичная ссылка t.me/nft/<name>
+    name = getattr(gift, "name", None)
+    if name:
+        num = getattr(gift, "number", None)
+        title = escape(name) + (f" #{num}" if num else "")
+        price = getattr(og, "transfer_star_count", None) or 0
+        link = f"https://t.me/nft/{escape(name)}"
+        price_txt = f"{price}⭐ (передача)" if price else "— (уникальный)"
+        return f"🎁 <a href=\"{link}\">{title}</a> — {price_txt}", int(price or 0)
+    # Regular gift — именем служит эмодзи стикера; личной ссылки нет
+    star = getattr(gift, "star_count", 0) or 0
+    sticker = getattr(gift, "sticker", None)
+    emoji = getattr(sticker, "emoji", None) or "🎁"
+    return f"{emoji} Подарок — {star}⭐", int(star)
+
+
+async def _resolve_gift_target(bot, msg, arg):
+    """Определить, чьи подарки показать. Возвращает
+    (kind, ident, title) где kind = 'user' | 'chat' | None.
+    """
+    arg = (arg or "").strip()
+    # 1) reply → берём id ответившего пользователя (надёжно, без @username)
+    if not arg and msg.reply_to_message and msg.reply_to_message.from_user:
+        u = msg.reply_to_message.from_user
+        title = "@" + u.username if u.username else (u.first_name or "пользователь")
+        return "user", u.id, title
+    # 2) явный @username / ссылка
+    if arg:
+        uname = arg.split()[0]
+        if uname.startswith("https://t.me/"):
+            uname = "@" + uname.rsplit("/", 1)[-1]
+        if not uname.startswith("@"):
+            uname = "@" + uname.lstrip("@")
+        try:
+            chat = await bot.get_chat(uname)
+        except Exception:
+            return None, uname, uname
+        if chat.type in ("channel", "supergroup", "group"):
+            return "chat", uname, uname
+        # приватный тип (пользователь/бот) — есть числовой id
+        return "user", chat.id, uname
+    # 3) без аргумента и без reply → собственные подарки владельца
+    return "user", None, "ваши"
+
+
 async def cmd_gifts(bot, msg, bc_id, owner_id, arg, partner):
-    text = f"{pe('gift')} <b>Подарки Telegram</b>\n\n"
+    kind, ident, title = await _resolve_gift_target(bot, msg, arg)
+    if kind is None:
+        await bot.send_message(
+            owner_id,
+            f"{pe('gift')} Не удалось найти <b>{escape(str(ident))}</b>.\n\n"
+            "Бот может показать подарки только для:\n"
+            "• публичного @username канала/группы;\n"
+            "• пользователя, на чьё сообщение вы <b>ответили</b> командой "
+            "<code>.gifts</code> (в бизнес-чате);\n"
+            "• ваших собственных — просто <code>.gifts</code> без аргумента.\n\n"
+            "<i>Обычного пользователя по «голому» @username Bot API Telegram "
+            "резолвить не умеет — ответьте на его сообщение.</i>",
+            parse_mode="HTML")
+        return
+
+    uid = ident if ident is not None else owner_id
     try:
-        gifts = await bot.get_available_gifts()
-        items = getattr(gifts, "gifts", [])
-        if items:
-            for g in items[:20]:
-                star = getattr(g, "star_count", "?")
-                text += f"• {getattr(g, 'sticker', '').emoji if getattr(g, 'sticker', None) else '🎁'} — {star} ⭐\n"
+        if kind == "chat":
+            res = await bot.get_chat_gifts(chat_id=uid, sort_by_price=True, limit=100)
         else:
-            text += "Список подарков пуст."
+            res = await bot.get_user_gifts(user_id=uid, sort_by_price=True, limit=100)
     except Exception as e:
-        logger.warning("get_available_gifts: %s", e)
-        text += ("Информация о подарках недоступна через этот бот. "
-                 "Подарки доступны в официальном клиенте Telegram "
-                 "(значок 🎁 в профиле).")
-    await bot.send_message(owner_id, text, parse_mode="HTML")
+        logger.warning("get_*_gifts(%s): %s", uid, e)
+        await bot.send_message(
+            owner_id,
+            f"{pe('gift')} Не удалось получить подарки для "
+            f"<b>{escape(str(title))}</b>.\n"
+            "<i>Профиль подарков может быть скрыт настройками приватности, "
+            "либо у бота нет к нему доступа.</i>",
+            parse_mode="HTML")
+        return
+
+    total_count = getattr(res, "total_count", 0) or 0
+    gifts = list(getattr(res, "gifts", []) or [])
+    header = f"{pe('gift')} <b>Подарки — {escape(str(title))}</b>\n"
+    header += f"📦 Всего подарков: <b>{total_count}</b>\n"
+
+    if not gifts:
+        await bot.send_message(
+            owner_id,
+            header + "\nСписок пуст или скрыт настройками приватности.",
+            parse_mode="HTML")
+        return
+
+    MAX_LINES = 30
+    lines = []
+    shown_sum = 0
+    for og in gifts[:MAX_LINES]:
+        line, price = _render_gift_line(og)
+        shown_sum += price
+        lines.append("• " + line)
+
+    body = "\n".join(lines)
+    footer = f"\n\n💰 Сумма показанных: <b>{shown_sum}⭐</b>"
+    if total_count > len(lines):
+        footer += (f"\n<i>Показаны {len(lines)} из {total_count}. "
+                   "Полную сумму по всем подаркам посчитать нельзя "
+                   "(их слишком много).</i>")
+    else:
+        footer += " (это все подарки)"
+    footer += ("\n\n<i>Цены — реальная стоимость подарков в Telegram Stars "
+               "(это официальная цена самих подарков, не игровая валюта).</i>")
+
+    out = premiumize(header + "\n" + body + footer)
+    # Защита от лимита длины сообщения Telegram
+    if len(out) > 4000:
+        out = out[:3900] + "\n… (список обрезан)"
+    await bot.send_message(owner_id, out, parse_mode="HTML",
+                           disable_web_page_preview=True)
 
 
 async def cmd_fv(bot, msg, bc_id, owner_id, arg, partner):
@@ -748,16 +998,17 @@ async def cmd_roll(bot, msg, bc_id, owner_id, arg, partner):
 async def cmd_pick(bot, msg, bc_id, owner_id, arg, partner):
     from bot.utils import tools
     try:
-        out = f"🎲 {tools.pick(arg)}"
+        out = premiumize(f"🎲 {escape(tools.pick(arg))}")
     except Exception as e:
-        out = f"Ошибка: {e}"
-    await _edit_own(bot, msg, bc_id, out)
+        out = f"Ошибка: {escape(str(e))}"
+    await _edit_own(bot, msg, bc_id, out, parse_mode="HTML")
 
 
 async def cmd_count(bot, msg, bc_id, owner_id, arg, partner):
     from bot.utils import tools
     text = _reply_or_arg(msg, arg)
-    await bot.send_message(owner_id, tools.count_text(text), parse_mode="HTML")
+    await bot.send_message(owner_id, premiumize(tools.count_text(text)),
+                           parse_mode="HTML")
 
 
 async def cmd_b64(bot, msg, bc_id, owner_id, arg, partner):
